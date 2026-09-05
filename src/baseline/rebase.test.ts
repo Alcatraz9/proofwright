@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { needsRebase, rebaseBaseline } from './rebase.js';
+import { needsRebase, rebaseBaseline, rebaseForThisHost } from './rebase.js';
 import type { Baseline } from './types.js';
 
 /**
@@ -111,4 +111,33 @@ test('needsRebase only fires when an origin actually differs', () => {
   assert.equal(needsRebase(baseline, 'http://127.0.0.1:7860/app/'), false);
   assert.equal(needsRebase(baseline, 'http://127.0.0.1:7880'), true);
   assert.equal(needsRebase(baseline, 'https://127.0.0.1:7860'), true);
+});
+
+test('rebaseForThisHost leaves an external target untouched', () => {
+  // A baseline recorded against a real external site must never be dragged onto
+  // the fixture: the origin is part of what the test is. This was observed live —
+  // blazedemo's recording passed, then the run replayed against 127.0.0.1 and
+  // failed every step as ELEMENT_NOT_FOUND.
+  const external = baselineFixture('https://blazedemo.com');
+  const result = rebaseForThisHost(external, 'http://127.0.0.1:7860');
+  assert.equal(result, external);
+  assert.equal(result.startUrl, 'https://blazedemo.com/app/');
+});
+
+test('rebaseForThisHost moves a fixture baseline to the current origin', () => {
+  const fixture = baselineFixture('http://127.0.0.1:7860');
+  const result = rebaseForThisHost(fixture, 'https://my-space.hf.space');
+  assert.equal(result.startUrl, 'https://my-space.hf.space/app/');
+});
+
+test('rebaseForThisHost treats localhost as fixture too', () => {
+  const fixture = baselineFixture('http://localhost:7871');
+  const result = rebaseForThisHost(fixture, 'http://127.0.0.1:7860');
+  assert.equal(result.startUrl, 'http://127.0.0.1:7860/app/');
+});
+
+test('rebaseForThisHost is a no-op when the fixture origin already matches', () => {
+  const fixture = baselineFixture('http://127.0.0.1:7860');
+  const result = rebaseForThisHost(fixture, 'http://127.0.0.1:7860');
+  assert.equal(result, fixture);
 });

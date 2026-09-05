@@ -1,7 +1,7 @@
 import { buildLocator, describeLocator } from '../browser/locator.js';
 import { checkStepElement, type ElementA11yFinding } from '../browser/a11y.js';
 import { attemptHeal, HEAL_THRESHOLD, type HealUpdate } from '../heal/engine.js';
-import { needsRebase, rebaseBaseline } from '../baseline/rebase.js';
+import { rebaseForThisHost } from '../baseline/rebase.js';
 import { INTERNAL_ORIGIN } from '../config.js';
 import { replayBaseline } from '../run/replay.js';
 import { loadBaseline, saveBaseline } from '../store/baselines.js';
@@ -84,9 +84,9 @@ export async function executeRun({
   // the origin moves; every recorded path is preserved, so a genuine divergence
   // is still caught. Heals are applied to `stored` rather than to this copy, so
   // running a test never rewrites the origins in the database.
-  const rebased = needsRebase(stored, INTERNAL_ORIGIN)
-    ? rebaseBaseline(stored, INTERNAL_ORIGIN)
-    : stored;
+  // Only fixture baselines (loopback recorded origin) follow the container;
+  // an external target's origin is part of what the test is.
+  const rebased = rebaseForThisHost(stored, INTERNAL_ORIGIN);
 
   markRunStatus(runId, 'running');
   publish(runId, 'RUN_STARTED', {

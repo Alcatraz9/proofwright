@@ -80,3 +80,32 @@ export function needsRebase(baseline: Baseline, targetOrigin: string): boolean {
     return false;
   }
 }
+
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '0.0.0.0', '[::1]']);
+
+/**
+ * Rebases a baseline onto this container's origin — but only when the baseline
+ * targets the *fixture*, recognised by a loopback recorded origin.
+ *
+ * The distinction matters more than the mechanism. A fixture baseline describes
+ * the app this container serves, so its origin must follow the container
+ * wherever it is deployed — a laptop's `127.0.0.1:7860` becoming a Space's
+ * `https://<space>.hf.space` is the same application answering at a new door.
+ * An *external* target's origin is part of what the test IS: a baseline
+ * recorded against blazedemo.com dragged onto the local fixture replays a
+ * flight search against a dashboard, fails every step as ELEMENT_NOT_FOUND,
+ * and reports the wrong application as broken (observed live — every external
+ * mission's run failed at step-1 this way while the recording had passed).
+ */
+export function rebaseForThisHost(baseline: Baseline, internalOrigin: string): Baseline {
+  let recordedHost: string;
+  try {
+    recordedHost = new URL(baseline.startUrl).hostname;
+  } catch {
+    return baseline;
+  }
+  if (!LOOPBACK_HOSTS.has(recordedHost)) return baseline;
+  return needsRebase(baseline, internalOrigin)
+    ? rebaseBaseline(baseline, internalOrigin)
+    : baseline;
+}

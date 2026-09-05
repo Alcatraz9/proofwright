@@ -1,6 +1,6 @@
 import { generateBaseline } from '../baseline/generate.js';
 import { INTERNAL_ORIGIN } from '../config.js';
-import { needsRebase, rebaseBaseline } from '../baseline/rebase.js';
+import { rebaseForThisHost } from '../baseline/rebase.js';
 import { describeLocator } from '../browser/locator.js';
 import { saveBaseline } from '../store/baselines.js';
 import { finishJob, markJobStatus } from '../store/jobs.js';
@@ -106,9 +106,7 @@ export async function recordBaselineJob({
     // Rebased on the way in for the same reason a replay is: the recorder ran against
     // this container's loopback, and storing that origin verbatim would tie the
     // baseline to the machine that produced it.
-    const toStore = needsRebase(baseline, INTERNAL_ORIGIN)
-      ? rebaseBaseline(baseline, INTERNAL_ORIGIN)
-      : baseline;
+    const toStore = rebaseForThisHost(baseline, INTERNAL_ORIGIN);
 
     saveBaseline(toStore);
 
