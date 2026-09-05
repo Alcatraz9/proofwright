@@ -86,7 +86,7 @@ const STAGE_TIMEOUT_MS = Number(process.env.STAGE_TIMEOUT_MS ?? 10 * 60 * 1000);
  * MAX_REPLAN_ROUNDS on a paid tier, where more rounds cost minutes rather than the
  * whole demo window.
  */
-const MAX_REPLAN_ROUNDS = Number(process.env.MAX_REPLAN_ROUNDS ?? 0);
+const MAX_REPLAN_ROUNDS = Number(process.env.MAX_REPLAN_ROUNDS ?? 1);
 
 /**
  * How long a crawled site map stays reusable for repeat missions against the
@@ -414,7 +414,7 @@ export async function runMission({ missionId, signal }: RunMissionParams): Promi
     } else if (observed) {
       instruction = [
         stated ??
-          'Exercise the primary journey this application exists for, using only what was found below: reach its main task, complete it with valid input, and confirm the application acknowledges the result. Keep the plan simple — the shortest sequence that proves the journey works end to end. Do not add edge cases, alternative flows, or exhaustive checks; a clean pass on the happy path is the goal.',
+          'Exercise the primary journey this application exists for, using only what was found below: reach its main task, complete it with valid input, and confirm the application acknowledges the result. Keep the plan simple — the shortest sequence that proves the journey works end to end. One plan tests ONE concern: do not chain a second scenario (a wrong-credential test, an empty-submission test, a different feature) onto this journey — those become their own plans later, and bundling them makes one verdict speak for several independent behaviours.',
         observed,
         credentialNote,
       ]

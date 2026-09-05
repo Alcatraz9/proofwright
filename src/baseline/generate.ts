@@ -264,6 +264,7 @@ export async function generateBaseline({
         action: effectiveAction,
         stepLocator: resolved?.primary ?? null,
         expectedValue: step.expectedValue,
+        filledValue: effectiveValue,
         intended: step.expectedOutcome?.description ?? null,
         urlBefore,
         urlAfter: page.url(),

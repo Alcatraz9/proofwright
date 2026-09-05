@@ -11,6 +11,8 @@ export interface DeriveOutcomeParams {
   stepLocator: Locator | null;
   /** Set only when the tester named a literal value for an assert step. */
   expectedValue: string | null;
+  /** The value a fill step actually put in — empty string for a clearing fill. */
+  filledValue?: string | null;
   intended: string | null;
   urlBefore: string;
   urlAfter: string;
@@ -36,6 +38,7 @@ export async function deriveOutcome({
   action,
   stepLocator,
   expectedValue,
+  filledValue,
   intended,
   urlBefore,
   urlAfter,
@@ -56,8 +59,13 @@ export async function deriveOutcome({
   }
 
   // A fill's post-condition is that the field holds the value. The value itself
-  // is never recorded — it may be a password.
-  if (action === 'fill' && stepLocator) {
+  // is never recorded — it may be a password. A CLEARING fill (empty value,
+  // "clear the email field") is the one fill whose success looks like nothing:
+  // asserting inputFilled on it fails by construction (observed live — a
+  // required-fields test cleared a field and the run reported the clear as an
+  // application fault). It gets no assertion; emptiness is indistinguishable
+  // from the default state.
+  if (action === 'fill' && stepLocator && (filledValue ?? '') !== '') {
     add('inputFilled', null, stepLocator);
   }
 

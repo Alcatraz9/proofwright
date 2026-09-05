@@ -54,6 +54,7 @@ Flag a step only for these defects:
 4. Unreachable target: a step acting on a page or element the application summary does not support.
 5. Order dependence: an assert placed before the action that produces what it asserts.
 6. Dead end: a plan that ends on an input step with nothing observed afterwards.
+7. Compound scenario: one plan chaining unrelated test concerns — a happy-path journey, then a wrong-credential test, then an empty-submission test in a single sequence. Each concern must be its own plan: a compound one reports a single verdict for several independent behaviours, and a failure in concern two silently prevents concern three from ever being attempted. Flag the step where the second concern begins and say the plan should be split there. A single coherent journey with its own verification is NOT compound, however many steps it has.
 
 Rules: cite step ids that exist; one finding per defect; no style opinions; no new test ideas — improving coverage is another stage's job. When the plan is sound, accept it. Most sound plans deserve acceptance on first read.`;
 
