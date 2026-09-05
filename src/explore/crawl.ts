@@ -91,6 +91,8 @@ export async function crawl(page: Page, options: CrawlOptions): Promise<SiteMap>
 
   const entryOrigin = new URL(options.entryUrl).origin;
   const visited = new Set<string>();
+  /** URL shapes (path templates) already represented in the map. */
+  const visitedShapes = new Set<string>();
   const pages: PageState[] = [];
   const unvisited: { url: string; reason: string }[] = [];
 
@@ -127,9 +129,34 @@ export async function crawl(page: Page, options: CrawlOptions): Promise<SiteMap>
       break;
     }
 
-    const next = queue.shift()!;
+    /**
+     * Diversity-first, specificity-ranked dequeue — not plain FIFO.
+     *
+     * Two observed failure modes shape this. FIFO spent a whole budget on
+     * siblings of one template (book after book), so only URLs whose *shape*
+     * is unseen are candidates. But among unseen shapes, DOM order feeds
+     * navigation chrome first — /login, /profile, /swagger all rank ahead of
+     * the first book row — and a 5-page crawl of a book store mapped no book.
+     * Content is *specific* (deeper paths, query parameters: /books?book=…)
+     * while chrome is shallow, so the most specific unseen shape wins. The
+     * result reads like a person: the listing, then INTO one representative
+     * item, then the rest of the app; never two copies of the same template
+     * while anything new remains.
+     */
+    let pick = 0;
+    let bestScore = -1;
+    for (const [index, entry] of queue.entries()) {
+      if (visitedShapes.has(urlShape(entry.url))) continue;
+      const score = urlSpecificity(entry.url);
+      if (score > bestScore) {
+        bestScore = score;
+        pick = index;
+      }
+    }
+    const next = queue.splice(pick, 1)[0]!;
     if (visited.has(next.url)) continue;
     visited.add(next.url);
+    visitedShapes.add(urlShape(next.url));
 
     let snapshot: PageSnapshot;
     try {
@@ -509,6 +536,55 @@ function sameOriginLinks(
     found.add(normalised);
   }
   return { links: [...found], skippedSessionEnding: [...skipped] };
+}
+
+/**
+ * The template a URL instantiates, for judging whether a page would teach the
+ * map anything new.
+ *
+ * Path segments that look like identifiers — pure numbers, hex/uuid-ish runs,
+ * or anything after a segment like "book", "product", "item", "user" that
+ * varies per row — collapse to a placeholder, so `/books/9781449325862` and
+ * `/books/9781449331818` share one shape while `/books` and `/checkout` keep
+ * their own. Query strings collapse to their sorted key set: `?book=A` and
+ * `?book=B` are one shape, `?book=A&tab=reviews` is another. Heuristic on
+ * purpose; a wrong merge costs one unexplored sibling, a wrong split costs
+ * one page of budget — both bounded.
+ */
+function urlShape(url: string): string {
+  try {
+    const u = new URL(url);
+    const path = u.pathname
+      .split('/')
+      .map((segment) => {
+        if (!segment) return segment;
+        if (/^\d+$/.test(segment)) return ':id';
+        if (/^[0-9a-f]{8,}$/i.test(segment)) return ':id';
+        if (/^[A-Za-z0-9_-]*\d{4,}[A-Za-z0-9_-]*$/.test(segment)) return ':id';
+        return segment.toLowerCase();
+      })
+      .join('/');
+    const keys = [...u.searchParams.keys()].sort().join(',');
+    return `${u.origin}${path}${keys ? `?${keys}` : ''}`;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * How specific a URL is: path depth plus query parameters. A detail page
+ * (`/books?book=978…`, `/pim/viewPersonalDetails/empNumber/7`) outranks
+ * navigation chrome (`/login`, `/profile`) — content over furniture when
+ * both are unseen shapes and the budget forces a choice.
+ */
+function urlSpecificity(url: string): number {
+  try {
+    const u = new URL(url);
+    const segments = u.pathname.split('/').filter(Boolean).length;
+    return segments + [...u.searchParams.keys()].length * 2;
+  } catch {
+    return 0;
+  }
 }
 
 function destructiveActionsIn(elements: ExtractedElement[]): string[] {
