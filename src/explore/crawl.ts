@@ -196,8 +196,34 @@ export async function crawl(page: Page, options: CrawlOptions): Promise<SiteMap>
         const after = await extractPage(page).catch(() => null);
         const stillHasAuth =
           after ? describeForms(after.elements, entryOrigin).some((form) => form.isAuth) : true;
+        /**
+         * The field detaching is necessary evidence, not sufficient. A React
+         * login form re-rendering its refusal can detach and recreate the
+         * password input — demoqa does, live: "Invalid username or password!"
+         * on screen, field momentarily gone, and this check called it a
+         * verified sign-in. The map then promised authenticated pages, the
+         * planner built a login journey on them, and the recording died
+         * asserting a book store the login never opened.
+         *
+         * The corroborating signal is the address: a successful sign-in moves
+         * off the login page (a path change, or at minimum a different
+         * document), while a refusal re-renders AT the login address. A site
+         * that signs in without moving is conservatively read as refused —
+         * the note keeps both readings open and the mission continues; the
+         * opposite error, claiming verification on a refusal, poisons every
+         * decision downstream.
+         */
+        const movedOn = (() => {
+          try {
+            const from = new URL(before);
+            const to = new URL(page.url());
+            return from.origin !== to.origin || from.pathname !== to.pathname;
+          } catch {
+            return false;
+          }
+        })();
 
-        if (after && !stillHasAuth) {
+        if (after && !stillHasAuth && movedOn) {
           /**
            * Keep the sign-in page in the map before moving past it.
            *
@@ -233,8 +259,9 @@ export async function crawl(page: Page, options: CrawlOptions): Promise<SiteMap>
           // check reject the very page the login had just revealed.
           authNoteExtra = `Signed in from ${before} and continued from ${page.url()}.`;
         } else {
-          authNoteExtra =
-            'A sign-in was submitted and the form was still present afterwards, so the credentials were refused or the application reported an error.';
+          authNoteExtra = movedOn
+            ? 'A sign-in was submitted and the form was still present afterwards, so the credentials were refused or the application reported an error.'
+            : 'A sign-in was submitted and the browser stayed at the sign-in address, so the credentials were refused or the application reported an error.';
           await page.goto(next.url, { waitUntil: 'domcontentloaded' }).catch(() => {});
         }
       } else {

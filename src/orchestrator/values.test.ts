@@ -104,3 +104,22 @@ test('provided credentials return names only, never values', () => {
   assert.equal(names.includes('not-an-env-name'), false);
   delete process.env.TEST_PASSWORD;
 });
+
+test('a new mission withdraws the previous mission\'s credentials', () => {
+  applyProvidedValues({ TEST_LEAK_USERNAME: 'Admin', TEST_LEAK_PASSWORD: 'admin123' });
+  assert.equal(process.env.TEST_LEAK_USERNAME, 'Admin');
+
+  // The next mission supplies nothing — the previous login must not survive.
+  const supplied = applyProvidedValues({});
+  assert.deepEqual(supplied, []);
+  assert.equal(process.env.TEST_LEAK_USERNAME, undefined);
+  assert.equal(process.env.TEST_LEAK_PASSWORD, undefined);
+});
+
+test('values from the server\'s own environment are never withdrawn', () => {
+  process.env.TEST_PREEXISTING_EMAIL = 'fixture@example.com'; // .env-style, not applied by us
+  applyProvidedValues({ TEST_LEAK2: 'x' });
+  applyProvidedValues({});
+  assert.equal(process.env.TEST_PREEXISTING_EMAIL, 'fixture@example.com');
+  delete process.env.TEST_PREEXISTING_EMAIL;
+});

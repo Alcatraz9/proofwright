@@ -78,7 +78,11 @@ export const startMission = register({
     const targetUrl = input.targetUrl ?? DEFAULT_TARGET_URL;
     const missionId = `m-${new Date().toISOString().replace(/[:.]/g, '-')}`;
 
-    const supplied = input.credentials ? applyProvidedValues(input.credentials) : [];
+    // Always called, even with no credentials: applying an empty set is how the
+    // PREVIOUS mission's credentials get withdrawn. Skipping the call was the
+    // leak — "no credentials supplied" silently meant "whatever the last
+    // mission supplied".
+    const supplied = applyProvidedValues(input.credentials ?? {});
 
     createMission({
       missionId,

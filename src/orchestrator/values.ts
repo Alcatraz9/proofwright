@@ -148,18 +148,36 @@ export function preflightValues(plan: IntentPlan): ValuePreflight {
   return result;
 }
 
+/** Refs the previous mission supplied, so they can be withdrawn, not inherited. */
+const appliedRefs = new Set<string>();
+
 /**
  * Caller-supplied values, for the case the challenge actually describes: a target
  * URL arrives with credentials rather than with a pre-configured environment.
  *
  * Returns the names only. The values are secrets and belong in no log, no decision
  * record, and no report.
+ *
+ * Credentials are MISSION input, not server state — but `process.env` is server
+ * state, and in a long-lived process one mission's login quietly became every
+ * later mission's login. Observed live: OrangeHRM's Admin/admin123, supplied at
+ * dawn, leaked into an afternoon demoqa mission that supplied nothing; the
+ * planner was told credentials existed, planned a sign-in journey the user never
+ * asked for, and the mission died trying to log in to the wrong site with the
+ * wrong account. Withdrawing the previous mission's refs first makes "no
+ * credentials this time" actually mean that. Values from the server's own
+ * environment (.env fixture credentials) are never touched — only what this
+ * function itself wrote.
  */
 export function applyProvidedValues(values: Record<string, string>): string[] {
+  for (const ref of appliedRefs) delete process.env[ref];
+  appliedRefs.clear();
+
   const names: string[] = [];
   for (const [ref, value] of Object.entries(values)) {
     if (!/^[A-Z][A-Z0-9_]*$/.test(ref)) continue; // env-var shaped names only
     process.env[ref] = value;
+    appliedRefs.add(ref);
     names.push(ref);
   }
   return names;
