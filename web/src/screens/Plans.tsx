@@ -12,8 +12,10 @@ import {
   PanelHeader,
   Reveal,
   Spinner,
+  Toggle,
 } from '../components/ui.tsx';
 import { Chip, PlanStatusChip, RunStatusChip } from '../components/status.tsx';
+import { IconStop } from '../components/icons.tsx';
 import { StepChannel } from '../components/StepChannel.tsx';
 import { foldEvents } from '../state/runModel.ts';
 import { ago, when } from '../lib/format.ts';
@@ -252,9 +254,33 @@ function PlanDetail({ planId }: { planId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
 
+  /**
+   * Which run is on screen, and which one this page is still waiting on.
+   *
+   * Two pieces of state rather than one, because they answer different questions.
+   * `openRunId` is what the reader chose to look at — a run they started, or one
+   * they picked out of the list, finished or not. `activeRunId` is only ever a run
+   * this page launched and that has not ended, and it exists to keep the launch
+   * button honest: opening a finished run from three days ago must not make the
+   * button claim the runner is busy.
+   */
+  const [openRunId, setOpenRunId] = useState<string | null>(null);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+
   const record = detail.data?.plan ?? null;
   const baseline = detail.data?.baseline ?? null;
   const runs = detail.data?.runs ?? [];
+
+  /**
+   * Keep the run list current while any of them is still going.
+   *
+   * Slower than the open run's own poll, because this is the index rather than
+   * the instrument: it exists so a run started somewhere else — another tab, the
+   * CLI — appears here and can be opened, and so a row's step count is not frozen
+   * at whatever it was when the page loaded. It stops as soon as nothing is live.
+   */
+  const anyLive = runs.some((run) => run.status === 'queued' || run.status === 'running');
+  usePoll(detail.reload, 4000, anyLive);
 
   const approve = async (): Promise<void> => {
     setBusy(true);
@@ -345,7 +371,7 @@ function PlanDetail({ planId }: { planId: string }) {
                 onCancel={() => setConfirming(false)}
               />
             ) : (
-              <div className="flex flex-wrap items-center gap-3">
+              <div className="flex flex-wrap items-start gap-x-4 gap-y-3">
                 {record.status === 'APPROVED' ? null : (
                   <Button
                     tone="primary"
@@ -357,7 +383,14 @@ function PlanDetail({ planId }: { planId: string }) {
                 )}
 
                 {runnable ? (
-                  <RunLauncher planId={planId} onFinished={detail.reload} />
+                  <RunLauncher
+                    planId={planId}
+                    inFlight={activeRunId !== null}
+                    onStarted={(id) => {
+                      setActiveRunId(id);
+                      setOpenRunId(id);
+                    }}
+                  />
                 ) : (
                   <span className="text-[12px] text-read-300">
                     {baseline === null
@@ -371,6 +404,20 @@ function PlanDetail({ planId }: { planId: string }) {
         </Panel>
       </Reveal>
 
+      {openRunId !== null ? (
+        <LiveRun
+          key={openRunId}
+          runId={openRunId}
+          planId={planId}
+          onEnded={() => {
+            setActiveRunId((current) => (current === openRunId ? null : current));
+            detail.reload();
+          }}
+          onBaselineChanged={detail.reload}
+          onDismiss={() => setOpenRunId(null)}
+        />
+      ) : null}
+
       {baseline ? (
         <Reveal delay={100}>
           <BaselinePanel baseline={baseline} />
@@ -379,7 +426,7 @@ function PlanDetail({ planId }: { planId: string }) {
 
       {runs.length > 0 ? (
         <Reveal delay={140}>
-          <PlanRuns runs={runs} />
+          <PlanRuns runs={runs} openRunId={openRunId} onOpen={setOpenRunId} />
         </Reveal>
       ) : null}
     </div>
@@ -419,23 +466,27 @@ function Meta({ label, value }: { label: string; value: ReactNode }) {
  * Healing is deliberately not offered here. The endpoint defaults it off, so this
  * is a plain replay: the specification against the baseline, and what happened.
  */
-function RunLauncher({ planId, onFinished }: { planId: string; onFinished: () => void }) {
-  const [runId, setRunId] = useState<string | null>(null);
-  const [ended, setEnded] = useState(false);
+function RunLauncher({
+  planId,
+  inFlight,
+  onStarted,
+}: {
+  planId: string;
+  inFlight: boolean;
+  onStarted: (runId: string) => void;
+}) {
   const [starting, setStarting] = useState(false);
+  const [everRan, setEverRan] = useState(false);
+  const [heal, setHeal] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // In flight is the only state that blocks the button. A finished run stays on
-  // screen — it is the answer — but it must not go on claiming the runner is busy.
-  const inFlight = runId !== null && !ended;
 
   const start = async (): Promise<void> => {
     setStarting(true);
-    setEnded(false);
     setError(null);
     try {
-      const started = await api.startRun({ planId });
-      setRunId(started.runId);
+      const started = await api.startRun({ planId, heal });
+      setEverRan(true);
+      onStarted(started.runId);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -447,24 +498,30 @@ function RunLauncher({ planId, onFinished }: { planId: string; onFinished: () =>
     <>
       <Button tone="primary" onClick={() => void start()} disabled={starting || inFlight}>
         {starting || inFlight ? <Spinner /> : null}
-        {inFlight ? 'Running' : runId === null ? 'Run it' : 'Run it again'}
+        {inFlight ? 'Running' : everRan ? 'Run it again' : 'Run it'}
       </Button>
+
+      {/*
+        Armed before the run and locked once it starts, because the server is told
+        once, at the point the run is queued. A control that kept moving while the
+        run was in flight would be describing a decision that had already been made.
+
+        The hint states the limit rather than the feature. A repair only happens on
+        a failure the runner has already classified as the test's fault — a locator
+        that no longer resolves, with no recorded fallback that still does. A step
+        that found its element and got the wrong answer is the application, and is
+        escalated untouched; that separation is the product, and an arming control
+        that implied "fixes failures" would be claiming the opposite.
+      */}
+      <Toggle
+        checked={heal}
+        onChange={setHeal}
+        disabled={inFlight || starting}
+        label="Auto heal"
+        hint="Repairs a step whose locator no longer resolves. A step that resolved and then failed its outcome is the application's, and is reported rather than repaired."
+      />
+
       {error ? <ErrorNote>{error}</ErrorNote> : null}
-      {runId !== null ? (
-        <LiveRun
-          key={runId}
-          runId={runId}
-          onFinished={() => {
-            setEnded(true);
-            // The plan's run list is stale the moment this one lands in it.
-            onFinished();
-          }}
-          onDismiss={() => {
-            setRunId(null);
-            setEnded(false);
-          }}
-        />
-      ) : null}
     </>
   );
 }
@@ -472,26 +529,42 @@ function RunLauncher({ planId, onFinished }: { planId: string; onFinished: () =>
 /**
  * One run, redrawn as it reports.
  *
- * `onFinished` fires once and only once. The poll keeps running for one more
- * cycle after the run ends so the final events are certainly in hand, and a
- * reload fired on every tick of a finished run would refetch the plan forever.
+ * Serves a run this page just launched and a run picked out of the list below
+ * identically, which is the point: a run in flight is not a different kind of
+ * thing from a finished one, it is the same record with fewer events in it so far.
+ * A run that has already ended simply folds to its final state on the first poll
+ * and stops.
+ *
+ * Polled rather than streamed, matching how an investigation follows its own
+ * stages. The server does offer an event stream, and a stream is the better
+ * instrument for a long run — but a replay is seconds to a couple of minutes, a
+ * poll cannot get stuck half-open, and re-reading the whole event log each time
+ * means a reconnect needs no resume logic. `foldEvents` is the same reducer the
+ * recorded view uses, so a run in flight and a run read back from the store draw
+ * from one code path and cannot disagree.
+ *
+ * `onEnded` fires once. Without the latch, every poll of a finished run would
+ * refetch the plan for as long as the panel stayed open.
  */
 function LiveRun({
   runId,
-  onFinished,
+  planId,
+  onEnded,
+  onBaselineChanged,
   onDismiss,
 }: {
   runId: string;
-  onFinished: () => void;
+  planId: string;
+  onEnded: () => void;
+  onBaselineChanged: () => void;
   onDismiss: () => void;
 }) {
   const detail = useAsync(() => api.run(runId), [runId]);
   const notified = useRef(false);
+  const [halting, setHalting] = useState(false);
+  const [haltError, setHaltError] = useState<string | null>(null);
 
-  const view = useMemo(
-    () => foldEvents(detail.data?.events ?? []),
-    [detail.data?.events],
-  );
+  const view = useMemo(() => foldEvents(detail.data?.events ?? []), [detail.data?.events]);
   const live = detail.data !== null && !view.ended;
 
   usePoll(detail.reload, 1200, live);
@@ -499,71 +572,112 @@ function LiveRun({
   useEffect(() => {
     if (view.ended && !notified.current) {
       notified.current = true;
-      onFinished();
+      onEnded();
     }
-  }, [view.ended, onFinished]);
+  }, [view.ended, onEnded]);
 
   const queued = view.queued !== null && view.started === null;
+  const heading = view.ended ? 'Run finished' : queued ? 'Queued' : 'Running';
 
   return (
-    <div className="w-full">
-      <Panel className="mt-3">
-        <PanelHeader
-          title={
-            <span className="flex flex-wrap items-baseline gap-x-3">
-              <span>{view.ended ? 'Run finished' : queued ? 'Queued' : 'Running'}</span>
-              <span className="mono-figures text-[13px] font-normal text-read-300">{runId}</span>
+    <Panel>
+      <PanelHeader
+        title={
+          <span className="flex min-w-0 flex-wrap items-baseline gap-x-3">
+            <span>{heading}</span>
+            {/* A run id is plan id + ISO timestamp — long, and mono, so it will
+                not break on its own. Left unbroken it drives the header wider
+                than the panel and the Close control goes off the edge. */}
+            <span className="mono-figures min-w-0 break-all text-[13px] font-normal text-read-300">
+              {runId}
             </span>
-          }
-          subtitle={
-            queued
-              ? `Waiting for the run slot. ${view.queued?.ahead ?? 0} ahead of it.`
-              : 'Replaying the approved specification against the recorded baseline. Repairs are off.'
-          }
-          right={
-            view.ended ? (
-              <button
-                type="button"
-                onClick={onDismiss}
-                className={`label-cut border border-rule px-2 py-1 text-read-200 transition-colors hover:border-signal hover:text-signal ${focusRing}`}
+          </span>
+        }
+        /* Read off RUN_STARTED rather than the arming control, so this says what
+           the run was actually given — the toggle can have moved since, and this
+           panel also serves runs it did not launch. */
+        subtitle={
+          queued
+            ? `Waiting for the run slot. ${view.queued?.ahead ?? 0} ahead of it.`
+            : `Replaying the approved specification against the recorded baseline. Repairs are ${
+                view.started?.healing ? 'armed' : 'off'
+              }.`
+        }
+        right={
+          <div className="flex items-center gap-2">
+            {live ? <Spinner /> : null}
+            {/*
+              Offered only while there is something to stop. The server takes both
+              states: a queued run is lifted out of the queue, a running one has its
+              abort signal raised and unwinds where it is.
+
+              No confirm step. Halting a replay destroys nothing — the run is
+              recorded as cancelled, the baseline is untouched, and the remedy for a
+              mistake is to press Run it again.
+            */}
+            {live ? (
+              <Button
+                tone="danger"
+                disabled={halting}
+                onClick={() => {
+                  setHalting(true);
+                  setHaltError(null);
+                  api
+                    .cancelRun(runId)
+                    // Refresh rather than assume: the cancel may land after the run
+                    // already finished, and the events are what say which happened.
+                    .then(() => detail.reload())
+                    .catch((err: unknown) =>
+                      setHaltError(err instanceof Error ? err.message : String(err)),
+                    )
+                    .finally(() => setHalting(false));
+                }}
               >
-                Dismiss
-              </button>
-            ) : (
-              <Spinner />
-            )
-          }
+                <IconStop size={13} />
+                {halting ? 'Halting' : 'Halt'}
+              </Button>
+            ) : null}
+            <button
+              type="button"
+              onClick={onDismiss}
+              className={`label-cut border border-rule px-2 py-1 text-read-200 transition-colors hover:border-signal hover:text-signal ${focusRing}`}
+            >
+              Close
+            </button>
+          </div>
+        }
+      />
+
+      {detail.error ? (
+        <div className="px-4 py-3">
+          <ErrorNote>{detail.error}</ErrorNote>
+        </div>
+      ) : null}
+
+      {haltError ? (
+        <div className="px-4 py-3">
+          <ErrorNote>{haltError}</ErrorNote>
+        </div>
+      ) : null}
+
+      {view.errors.length > 0 ? (
+        <div className="space-y-2 px-4 py-3">
+          {view.errors.map((err, index) => (
+            <ErrorNote key={index}>{err.message}</ErrorNote>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="overflow-x-auto">
+        <StepChannel
+          steps={view.steps}
+          totalSteps={view.totalSteps}
+          planId={planId}
+          onBaselineChanged={onBaselineChanged}
         />
-
-        {detail.error ? (
-          <div className="px-4 py-3">
-            <ErrorNote>{detail.error}</ErrorNote>
-          </div>
-        ) : null}
-
-        {view.errors.length > 0 ? (
-          <div className="space-y-2 px-4 py-3">
-            {view.errors.map((err, index) => (
-              <ErrorNote key={index}>{err.message}</ErrorNote>
-            ))}
-          </div>
-        ) : null}
-
-        <StepChannel steps={view.steps} totalSteps={view.totalSteps} planId={planId(runId)} />
-      </Panel>
-    </div>
+      </div>
+    </Panel>
   );
-}
-
-/**
- * A run id is its plan id with a timestamp appended, and the channel wants the
- * plan to offer a repair against. Read back rather than threaded through, because
- * the alternative is passing the same string down two components that already
- * have the run it belongs to.
- */
-function planId(runId: string): string | null {
-  const match = /^(.*)-\d{4}-\d{2}-\d{2}T/.exec(runId);
-  return match ? match[1]! : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -672,31 +786,61 @@ function describeStoredLocator(locator: {
 }
 
 /**
- * What this plan has been run as, listed rather than opened.
+ * What this plan has been run as, and a way into any of them.
  *
- * The rows used to open a step-by-step replay on the console. That screen is
- * gone, so they state the outcome instead of pretending to a destination — a
- * row that looks clickable and goes nowhere is worse than a row that never
- * offered. The per-run account now lives on the investigation that produced it.
+ * The rows were briefly inert — they used to open a replay on the console, and
+ * when that screen went there was nowhere for them to lead. They lead here now,
+ * to the same panel a freshly launched run uses, which makes a run in flight
+ * something you can walk up to rather than something you had to have started
+ * yourself. Reopening the page mid-run, or starting one and scrolling away, both
+ * stop being dead ends.
+ *
+ * A run still going says so on the row, because the difference between "this is
+ * happening now" and "this happened on Tuesday" is the whole reason to click.
  */
-function PlanRuns({ runs }: { runs: RunSummary[] }) {
+function PlanRuns({
+  runs,
+  openRunId,
+  onOpen,
+}: {
+  runs: RunSummary[];
+  openRunId: string | null;
+  onOpen: (runId: string) => void;
+}) {
   return (
     <Panel>
-      <PanelHeader title="Runs of this plan" subtitle="Every recorded execution, newest first." />
+      <PanelHeader
+        title="Runs of this plan"
+        subtitle="Every recorded execution, newest first. Open one to see its steps — including one still in flight."
+      />
       <ul>
-        {runs.map((run) => (
-          <li
-            key={run.runId}
-            className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-rule px-4 py-3 last:border-b-0"
-          >
-            <RunStatusChip status={run.status} />
-            {run.activeVersion ? <Chip tone="accent">{run.activeVersion}</Chip> : null}
-            {run.healCount > 0 ? <Chip tone="heal">{run.healCount} repaired</Chip> : null}
-            <span className="mono-figures ml-auto text-[12px] text-read-300">
-              {run.stepsPassed}/{run.stepsTotal} · {when(run.startedAt)}
-            </span>
-          </li>
-        ))}
+        {runs.map((run) => {
+          const live = run.status === 'queued' || run.status === 'running';
+          const open = run.runId === openRunId;
+          return (
+            <li key={run.runId} className="border-b border-rule last:border-b-0">
+              <button
+                type="button"
+                aria-current={open ? 'true' : undefined}
+                onClick={() => onOpen(run.runId)}
+                className={`flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 text-left transition-colors ${focusRing} ${
+                  open ? 'bg-plate-200/60' : 'hover:bg-plate-200/40'
+                }`}
+              >
+                <RunStatusChip status={run.status} />
+                {run.activeVersion ? <Chip tone="accent">{run.activeVersion}</Chip> : null}
+                {run.healCount > 0 ? <Chip tone="heal">{run.healCount} repaired</Chip> : null}
+                {live ? <Spinner /> : null}
+                <span className="mono-figures ml-auto text-[12px] text-read-300">
+                  {run.stepsPassed}/{run.stepsTotal} · {when(run.startedAt)}
+                </span>
+                <span className="label-cut w-16 shrink-0 text-right">
+                  {open ? 'Open' : live ? 'Watch' : 'View'}
+                </span>
+              </button>
+            </li>
+          );
+        })}
       </ul>
     </Panel>
   );
