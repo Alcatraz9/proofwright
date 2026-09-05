@@ -18,7 +18,7 @@ async function main(): Promise<void> {
   const { options } = parseArgs();
   const url = options.get('url') ?? 'http://127.0.0.1:7860/app/';
   const pageLimit = Number(options.get('pages') ?? 8);
-  const depthLimit = Number(options.get('depth') ?? 2);
+  const depthLimit = Number(options.get('depth') ?? 8);
 
   console.log(`Exploring ${url} (max ${pageLimit} pages, depth ${depthLimit})\n`);
 

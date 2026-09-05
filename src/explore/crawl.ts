@@ -29,7 +29,13 @@ export interface CrawlOptions {
   entryUrl: string;
   /** Hard ceiling on pages extracted. The free tier is slow; depth beats breadth. */
   pageLimit?: number;
-  /** Clicks from the entry URL. Two reaches a detail page from a list. */
+  /**
+   * Clicks from the entry URL. Eight in practice defers to the page budget:
+   * breadth-first order fills the page cap long before depth on any site with
+   * fan-out, so this only bites on chain-shaped paths (list -> detail ->
+   * sub-detail), which is exactly where a low limit was cutting real
+   * exploration short. The page budget, not this, is the cost control.
+   */
   depthLimit?: number;
   /** Wall-clock ceiling, because one slow page should not consume the mission. */
   timeBudgetMs?: number;
@@ -74,7 +80,7 @@ const DESTRUCTIVE_HINTS = [
 
 export async function crawl(page: Page, options: CrawlOptions): Promise<SiteMap> {
   const pageLimit = options.pageLimit ?? 8;
-  const depthLimit = options.depthLimit ?? 2;
+  const depthLimit = options.depthLimit ?? 8;
   const timeBudgetMs = options.timeBudgetMs ?? 90_000;
   const startedAt = Date.now();
 
