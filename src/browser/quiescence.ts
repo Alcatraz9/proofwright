@@ -112,3 +112,51 @@ export async function checkQuiescence(
 
   return { busy: false, reason: null };
 }
+
+export interface AwaitQuiescenceOptions {
+  /** Reads the current same-origin in-flight request count, from a HealthMonitor. */
+  inFlightRequests: () => number;
+  /** Ceiling on the whole wait. The page not settling by then is reported, not hidden. */
+  budgetMs?: number;
+  /** Pause between busy re-checks. */
+  intervalMs?: number;
+}
+
+/**
+ * Waits until the page has finished reacting to an interaction, or until the
+ * budget runs out — and says which.
+ *
+ * This is the answer to "how do we know the click is done?". A fixed
+ * `networkidle` ceiling is not: it fires early on a slow round-trip (OrangeHRM's
+ * login takes ~4.4s and the old 2.5s cap looked at the page mid-flight) and
+ * never fires on an app that polls. Instead this watches the signals that
+ * actually mean "still working":
+ *
+ * - a document navigation that has started but not reached `domcontentloaded`
+ * - same-origin requests the app has issued and not yet received
+ * - explicit busy markers: `aria-busy`, progressbars, spinner/skeleton classes
+ * - the DOM still mutating across a stability interval
+ *
+ * Returns the final signal so the caller can record an honest "proceeded while
+ * still busy" rather than silently treating a timeout as settled.
+ */
+export async function awaitQuiescence(
+  page: Page,
+  { inFlightRequests, budgetMs = 15_000, intervalMs = 300 }: AwaitQuiescenceOptions,
+): Promise<BusySignal> {
+  // Let a document navigation commit first: mid-navigation, evaluating anything
+  // in the page races the context teardown.
+  await page.waitForLoadState('domcontentloaded', { timeout: budgetMs }).catch(() => {});
+
+  const startedAt = Date.now();
+  let busy: BusySignal = { busy: false, reason: null };
+
+  for (;;) {
+    busy = await checkQuiescence(page, { inFlightRequests: inFlightRequests() }).catch(
+      () => ({ busy: false, reason: null }),
+    );
+    if (!busy.busy) return busy;
+    if (Date.now() - startedAt >= budgetMs) return busy;
+    await page.waitForTimeout(intervalMs);
+  }
+}

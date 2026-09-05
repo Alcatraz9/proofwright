@@ -2,7 +2,7 @@ import type { Browser, Page } from 'playwright';
 import { launchBrowser, newPage } from '../browser/session.js';
 import { resolveValueRef } from '../config.js';
 import { extractPage, type ExtractedElement, type PageSnapshot } from '../browser/extract.js';
-import { executeAction, isReadOnly, settle } from '../browser/execute.js';
+import { executeAction, isReadOnly } from '../browser/execute.js';
 import { toFingerprint } from '../browser/fingerprint.js';
 import { buildLocator, describeLocator, resolveLocators } from '../browser/locator.js';
 import { actsOnElement, type IntentPlan, type IntentStep } from '../intent/types.js';
@@ -12,6 +12,11 @@ import { VisualRecorder } from './visual.js';
 import { baselineShotPath, captureElementShot } from '../browser/screenshot.js';
 import { resolveStep } from './resolve.js';
 import type { Baseline, BaselineOutcome, BaselineStep } from './types.js';
+import { HealthMonitor } from '../run/health.js';
+import { awaitQuiescence } from '../browser/quiescence.js';
+
+/** Identity of an element across extraction passes, where refs do not survive. */
+const contentKey = (el: ExtractedElement): string => `${el.role}|${el.accessibleName}`;
 
 /** Below this, the model is guessing and we would be baking a guess into a baseline. */
 export const RESOLUTION_THRESHOLD = 0.7;
@@ -48,14 +53,25 @@ export async function generateBaseline({
 }: GenerateBaselineOptions): Promise<Baseline> {
   const browser: Browser = await launchBrowser({ headed });
   const page: Page = await newPage(browser);
+  // The same busy-signal tracking the replayer uses: same-origin requests in
+  // flight, counted from the wire rather than inferred from network idleness.
+  const monitor = new HealthMonitor(page);
+  const settled = () =>
+    awaitQuiescence(page, { inFlightRequests: () => monitor.snapshot().inFlightRequests });
 
   try {
     await page.goto(plan.startUrl, { waitUntil: 'domcontentloaded' });
-    await settle(page);
+    await settled();
 
     const steps: BaselineStep[] = [];
     const visual = new VisualRecorder();
     const history: string[] = [];
+    // Content keys (role|name) of elements the previous mutating action caused
+    // to appear. An assert step that follows an action is usually *about* what
+    // that action produced — an error alert, a confirmation banner, a
+    // destination heading — so the resolver is told which candidates those are
+    // instead of weighing them equally against the page's static furniture.
+    let appearedKeys = new Set<string>();
 
     // Order matters, and it is not obvious.
     //
@@ -93,7 +109,10 @@ export async function generateBaseline({
       let resolution = { confidence: 1, reason: 'Acts on the page, not an element.' };
 
       if (needsElement) {
-        const matched = await resolveElement({ step, snapshot, history, threshold, onEvent });
+        const appearedRefs = snapshot.elements
+          .filter((el) => appearedKeys.has(contentKey(el)))
+          .map((el) => el.ref);
+        const matched = await resolveElement({ step, snapshot, history, threshold, appearedRefs, onEvent });
         model = matched.model;
         element = matched.element;
         resolution = matched.resolution;
@@ -155,9 +174,27 @@ export async function generateBaseline({
         throw new BaselineError(step, `Executing the step failed: ${messageOf(err)}`);
       }
 
-      if (!isReadOnly(step.action)) await settle(page);
+      if (!isReadOnly(step.action)) {
+        const busy = await settled();
+        if (busy.busy) {
+          onEvent?.({
+            type: 'warning',
+            stepId: step.id,
+            message:
+              `Proceeding although the page still looks busy (${busy.reason}). The wait budget ` +
+              'is spent; what follows is recorded against the page as it stands.',
+          });
+        }
+      }
 
       const after = await extractPage(page);
+      // What this action caused to appear, for the next steps' resolution. Kept
+      // across read-only steps: two asserts in a row are both about the same
+      // action's effects. Recomputed only when the page is acted on again.
+      if (!isReadOnly(step.action)) {
+        const seen = new Set(snapshot.elements.map(contentKey));
+        appearedKeys = new Set(after.elements.map(contentKey).filter((k) => !seen.has(k)));
+      }
       const outcome = await deriveOutcome({
         page,
         action: step.action,
@@ -246,12 +283,15 @@ async function resolveElement({
   snapshot,
   history,
   threshold,
+  appearedRefs,
   onEvent,
 }: {
   step: IntentStep;
   snapshot: PageSnapshot;
   history: string[];
   threshold: number;
+  /** Refs of elements the previous action caused to appear. */
+  appearedRefs: string[];
   onEvent?: (event: BaselineEvent) => void;
 }): Promise<{ element: ExtractedElement; resolution: { confidence: number; reason: string }; model: string }> {
   // A ref that is not on the page is a malformed sample, not an answer — the
@@ -263,7 +303,7 @@ async function resolveElement({
   let lastRef = '';
 
   for (let attempt = 0; attempt < attempts; attempt++) {
-    const { resolution, model } = await resolveStep({ step, snapshot, history });
+    const { resolution, model } = await resolveStep({ step, snapshot, history, appearedRefs });
 
     onEvent?.({
       type: 'resolved',

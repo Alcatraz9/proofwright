@@ -57,12 +57,21 @@ export interface ResolveStepParams {
   snapshot: PageSnapshot;
   /** Steps already executed, so the model knows where in the flow it is. */
   history: string[];
+  /**
+   * Refs of elements the previous action caused to appear — computed by the
+   * recorder from a before/after DOM diff, not guessed. An assert step that
+   * follows an action is usually about what the action produced (an error
+   * alert, a confirmation, a destination heading), so these are named to the
+   * model as the prime candidates rather than left to compete on wording alone.
+   */
+  appearedRefs?: string[];
 }
 
 export async function resolveStep({
   step,
   snapshot,
   history,
+  appearedRefs = [],
 }: ResolveStepParams): Promise<{ resolution: StepResolution; model: string }> {
   const target = step.target;
 
@@ -83,6 +92,11 @@ export async function resolveStep({
    */
   const recentHistory = history.slice(-3);
   const candidates = filterByAction(snapshot, step.action);
+  // Only refs that survived the action filter: naming a ref the model cannot
+  // pick would invite exactly the invented-ref failure the rules forbid.
+  const visibleAppeared = appearedRefs.filter((ref) =>
+    candidates.elements.some((el) => el.ref === ref),
+  );
 
   const prompt = [
     recentHistory.length > 0
@@ -94,6 +108,11 @@ export async function resolveStep({
     `  target: ${target?.description ?? '(none)'}`,
     `  target context: ${target?.context ?? '(none given)'}`,
     '',
+    visibleAppeared.length > 0
+      ? `Elements that APPEARED in response to the previous action: ${visibleAppeared.join(', ')}\n` +
+        'If this step verifies the previous action\'s effect, these are the prime candidates —\n' +
+        'they are what the action actually produced.\n'
+      : '',
     'Candidate elements on the current page:',
     renderElementsForPrompt(candidates),
     '',

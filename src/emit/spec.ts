@@ -241,6 +241,9 @@ function locatorExpression(locator: Locator): string {
       return `page.getByAltText(${quote(locator.value ?? '')})${nth}`;
     case 'text':
       return `page.getByText(${quote(locator.value ?? '')})${nth}`;
+    case 'roleText':
+      // Containment rather than exact name: the identifying text lives in a descendant.
+      return `page.getByRole(${quote(locator.role ?? 'generic')}).filter({ hasText: ${quote(locator.value ?? '')} })${nth}`;
     case 'labelledBy':
       // The element that follows a label, which is how a displayed *value* gets an
       // identity that does not depend on its own content.

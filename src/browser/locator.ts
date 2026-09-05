@@ -25,6 +25,11 @@ function resolveStrategy(page: Page, locator: Locator): PlaywrightLocator {
       return page.getByRole(locator.role as Parameters<Page['getByRole']>[0], {
         ...(locator.name ? { name: locator.name, exact: true } : {}),
       });
+    case 'roleText':
+      // Containment, not exact match: the text may live in any descendant.
+      return page
+        .getByRole(locator.role as Parameters<Page['getByRole']>[0])
+        .filter({ hasText: value });
     case 'label':
       return page.getByLabel(value, { exact: true });
     case 'labelledBy':
@@ -52,9 +57,11 @@ export function describeLocator(locator: Locator): string {
       ? locator.name === null
         ? `role=${locator.role}`
         : `role=${locator.role}[name="${locator.name}"]`
-      : locator.strategy === 'labelledBy'
-        ? `after label "${locator.value ?? ''}"`
-        : `${locator.strategy}="${locator.value ?? ''}"`;
+      : locator.strategy === 'roleText'
+        ? `role=${locator.role} containing "${locator.value ?? ''}"`
+        : locator.strategy === 'labelledBy'
+          ? `after label "${locator.value ?? ''}"`
+          : `${locator.strategy}="${locator.value ?? ''}"`;
   return locator.nth === null ? base : `${base} >> nth=${locator.nth}`;
 }
 
@@ -125,50 +132,27 @@ export function deriveLocatorCandidates(element: ExtractedElement): Locator[] {
    * last, because it is a recovery for markup the earlier strategies cannot describe
    * rather than a better way to describe markup they can.
    */
-  if (
-    !element.accessibleName &&
-    element.interactive &&
-    element.role &&
-    element.text &&
-    element.text.length <= 60
-  ) {
-    add({ strategy: 'role', value: null, role: element.role, name: element.text });
-  }
-
   /**
-   * A live region or dialog, located by bare role.
+   * The general recovery for elements whose identity lives in their descendants:
+   * role plus contained text. Both earlier strategies fail on this markup — the
+   * element's own accessible name may be empty (icon-in-button) or unrelated to
+   * its contents (live regions, whose ARIA name never comes from contents), and
+   * a bare text locator resolves to the innermost node, a *different* element
+   * that uniqueness verification correctly rejects.
    *
-   * ARIA never derives these roles' names from their contents, so the named
-   * role candidate above is dead on arrival for them: our extractor names an
-   * `<div role="alert">Invalid credentials</div>` from its text, but Playwright
-   * computes no name for it and `getByRole('alert', { name: ... })` matches
-   * nothing. A text candidate resolves to the inner `<p>` — a different element
-   * — so verification correctly rejects that too. The result was a real,
-   * persistent error message that could not be located at all (OrangeHRM's
-   * invalid-credentials alert, live-verified).
-   *
-   * A bare `getByRole('alert')` is the honest durable locator here: these roles
-   * are announcements and containers that normally occur once. When more than
-   * one exists, uniqueness verification demotes this to positional or rejects
-   * it, same as every other candidate.
+   * `getByRole(role).filter({ hasText })` matches by containment, so it finds
+   * the element the model actually chose regardless of how deep the text sits.
+   * Added last because it is a recovery for markup the earlier strategies
+   * cannot describe, not a better way to describe markup they can — and like
+   * every candidate it is only written after verifying it selects exactly the
+   * stamped element.
    */
-  if (element.role && BARE_ROLE_LOCATABLE.has(element.role)) {
-    add({ strategy: 'role', value: null, role: element.role, name: null });
+  if (element.role && element.text && element.text.length <= 60) {
+    add({ strategy: 'roleText', value: element.text, role: element.role, name: null });
   }
 
   return candidates;
 }
-
-/** Roles whose accessible name never comes from contents (ARIA "name from author"). */
-const BARE_ROLE_LOCATABLE = new Set([
-  'alert',
-  'alertdialog',
-  'dialog',
-  'status',
-  'log',
-  'marquee',
-  'timer',
-]);
 
 const CSS_ID_SAFE = /^[A-Za-z][\w-]*$/;
 

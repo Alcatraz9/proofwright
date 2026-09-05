@@ -30,6 +30,20 @@ export const LOCATOR_STRATEGIES = [
   'placeholder',
   'altText',
   'text',
+  /**
+   * An element identified by its role plus text *contained anywhere within it* —
+   * `getByRole(role).filter({ hasText })`.
+   *
+   * This is the general recovery for markup where an element's identity lives in
+   * its descendants rather than its own attributes. Two live-verified cases it
+   * covers: a button whose label sits inside an icon (`<button><i>Login</i>`),
+   * where the accessible name is empty and a text locator resolves to the `<i>`;
+   * and a live region (`<div role="alert"><p>Invalid credentials</p></div>`),
+   * whose ARIA name never comes from contents, so an exact-name role locator
+   * matches nothing while the text locator matches the inner `<p>`. Containment
+   * rather than exact match is what makes it one rule instead of a case list.
+   */
+  'roleText',
   'css',
 ] as const;
 
