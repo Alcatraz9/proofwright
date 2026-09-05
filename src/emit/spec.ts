@@ -29,6 +29,13 @@ export interface EmitResult {
   steps: number;
   /** Steps whose locator was rewritten by the healer since first recording. */
   healed: number;
+  /**
+   * The file's full source. Returned so callers can persist it: the on-disk
+   * copy lives in a gitignored directory on an ephemeral filesystem, and each
+   * emission overwrites the last — a tester who asks "where are my tests?"
+   * after a restart deserves a better answer than "they were here".
+   */
+  source: string;
 }
 
 const OUT_DIR = path.join(ROOT, 'tests', 'generated');
@@ -56,13 +63,15 @@ export async function emitSpec(
   const healed = baseline.steps.filter((step) => (step.healHistory?.length ?? 0) > 0).length;
 
   await mkdir(OUT_DIR, { recursive: true });
-  await writeFile(filePath, renderSpec(baseline, healed, options.authoredValues ?? {}), 'utf8');
+  const source = renderSpec(baseline, healed, options.authoredValues ?? {});
+  await writeFile(filePath, source, 'utf8');
 
   return {
     filePath,
     relativePath: path.relative(ROOT, filePath),
     steps: baseline.steps.length,
     healed,
+    source,
   };
 }
 

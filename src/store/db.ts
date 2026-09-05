@@ -213,6 +213,7 @@ function migrate(database: DatabaseSync): void {
     `ALTER TABLE baselines ADD COLUMN visual_json TEXT NOT NULL DEFAULT '[]'`,
     `ALTER TABLE missions ADD COLUMN site_map_json TEXT`,
     `ALTER TABLE missions ADD COLUMN coverage_rounds_json TEXT NOT NULL DEFAULT '[]'`,
+    `ALTER TABLE baselines ADD COLUMN spec_ts TEXT`,
   ]) {
     try {
       database.exec(statement);

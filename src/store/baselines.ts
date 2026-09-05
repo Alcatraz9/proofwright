@@ -133,3 +133,25 @@ export async function readLegacyBaselineFiles(): Promise<Baseline[]> {
   }
   return baselines;
 }
+
+/**
+ * Keep the emitted Playwright spec with the baseline it was rendered from.
+ *
+ * The on-disk copy under tests/generated/ is gitignored and the filesystem is
+ * ephemeral (a Space restart wipes it), so without this the suite's whole
+ * deliverable — the test files — survived only until the next restart. Stored
+ * as source, not a path: the file IS the artifact.
+ */
+export function saveSpecSource(planId: string, source: string): void {
+  db()
+    .prepare('UPDATE baselines SET spec_ts = ?, updated_at = ? WHERE plan_id = ?')
+    .run(source, nowIso(), planId);
+}
+
+export function loadSpecSource(planId: string): string | null {
+  const row = queryOne<{ spec_ts: string | null }>(
+    'SELECT spec_ts FROM baselines WHERE plan_id = ?',
+    planId,
+  );
+  return row?.spec_ts ?? null;
+}

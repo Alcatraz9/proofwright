@@ -13,7 +13,7 @@ import {
   unapprovePlan,
   updatePlanBody,
 } from '../store/plans.js';
-import { deleteBaseline, loadBaseline, revertLastHeal } from '../store/baselines.js';
+import { deleteBaseline, loadBaseline, revertLastHeal, loadSpecSource } from '../store/baselines.js';
 import {
   createRun,
   listArtifacts,
@@ -308,6 +308,30 @@ async function api(req: IncomingMessage, res: ServerResponse, url: URL): Promise
       // sends someone to fix the wrong thing.
       json(res, 502, { error: `The plan could not be generated: ${message}` });
     }
+    return true;
+  }
+
+  /**
+   * The generated test file, served from the database rather than the
+   * filesystem: tests/generated/ is gitignored and ephemeral, so this is the
+   * copy that survives a restart. Plain text with a download filename, because
+   * the point of emitting Playwright specs is that a tester can take them away.
+   */
+  const specMatch = /^\/api\/plans\/([A-Za-z0-9._-]+)\/spec$/.exec(path);
+  if (specMatch && method === 'GET') {
+    const planId = specMatch[1]!;
+    const source = loadSpecSource(planId);
+    if (source === null) {
+      json(res, 404, {
+        error: `No generated spec for "${planId}". A spec exists once the plan has recorded and executed.`,
+      });
+      return true;
+    }
+    res.writeHead(200, {
+      'content-type': 'text/typescript; charset=utf-8',
+      'content-disposition': `attachment; filename="${planId}.spec.ts"`,
+    });
+    res.end(source);
     return true;
   }
 

@@ -41,6 +41,32 @@ export function toPlanId(name: string): string {
   return slug || 'unnamed-plan';
 }
 
+/**
+ * A plan ID no existing plan holds.
+ *
+ * Model-named plans collide constantly — every second mission calls its plan
+ * "Login Flow" — and `savePlan` upserts on conflict, so a collision silently
+ * rewrote another mission's plan while the baselines table (keyed by plan ID)
+ * kept serving the OLD recording. Observed live: a demoqa mission whose own
+ * recording failed then executed a stale OrangeHRM baseline that happened to
+ * share the id "login-flow", and reported the wrong application's failure.
+ * A numeric suffix keeps the id readable while making the collision impossible.
+ */
+function uniquePlanId(name: string): string {
+  const base = toPlanId(name);
+  if (!planExists(base)) return base;
+  for (let n = 2; ; n++) {
+    const candidate = `${base}-${n}`;
+    if (!planExists(candidate)) return candidate;
+  }
+}
+
+function planExists(planId: string): boolean {
+  return Boolean(
+    db().prepare('SELECT 1 FROM plans WHERE plan_id = ?').get(planId),
+  );
+}
+
 interface PlanRow {
   plan_id: string;
   created_at: string;
@@ -82,7 +108,7 @@ export function savePlan(params: {
   planId?: string;
   status?: PlanStatus;
 }): { planId: string; stored: PlanRecord } {
-  const planId = params.planId ?? toPlanId(params.plan.name);
+  const planId = params.planId ?? uniquePlanId(params.plan.name);
   const at = nowIso();
   const status = params.status ?? 'DRAFT';
 

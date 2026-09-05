@@ -20,7 +20,7 @@ import { since, snapshot } from '../llm/usage.js';
 import { buildRevisionInstruction, critiquePlan } from './critic.js';
 import { executeRun } from '../server/execute-run.js';
 import { recordBaselineJob } from '../server/record-baseline.js';
-import { loadBaseline } from '../store/baselines.js';
+import { loadBaseline, saveSpecSource } from '../store/baselines.js';
 import { createJob, finishJob } from '../store/jobs.js';
 import {
   amendLastCoverageRound,
@@ -328,7 +328,16 @@ export async function runMission({ missionId, signal }: RunMissionParams): Promi
         ]
           .filter(Boolean)
           .join(' ')
-      : null;
+      : /**
+         * No credentials at all. A sign-in journey planned anyway has exactly one
+         * ending: the recorder reaches the login form, has nothing to type, and
+         * the mission dies at resolution — or worse, the model invents a
+         * credential. But the sign-in form itself is still worth testing from
+         * the outside: a refusal is asserted with made-up wrong values, and
+         * required-field validation needs no account. Say so explicitly, or the
+         * planner treats "there is a login form" as an invitation.
+         */
+        'No login credentials were supplied. Do NOT plan any journey that requires signing in or reaching pages behind the sign-in form. If a sign-in form exists, test it only negatively: wrong credentials must be refused with an error, and required-field validation must hold. Plan the rest of the suite on pages reachable without an account.';
 
     const observed = siteMap ? summariseForPlanner(siteMap) : null;
 
@@ -806,12 +815,15 @@ export async function runMission({ missionId, signal }: RunMissionParams): Promi
         try {
           const emitted = await emitSpec(healedBaseline, { authoredValues });
           specFiles.push(emitted.relativePath);
+          // The durable copy. tests/generated/ is gitignored and the filesystem
+          // is ephemeral; the database is where the deliverable survives.
+          saveSpecSource(entry.planId, emitted.source);
           decide(
             'execute',
             `Wrote ${emitted.relativePath}`,
             `An executable Playwright spec for "${entry.planId}"${
               emitted.healed ? `, including ${emitted.healed} locator(s) the healer repaired` : ''
-            }. Its locators are the ones proven against the running application, not selectors a model guessed.`,
+            }. Its locators are the ones proven against the running application, not selectors a model guessed. The source is stored with the baseline and served at /api/plans/${entry.planId}/spec.`,
             'ok',
           );
         } catch (error) {
