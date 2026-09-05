@@ -1,0 +1,50 @@
+{
+  "name": "qa-prototype",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "postinstall": "playwright install chromium",
+    "plan": "tsx src/cli/generate-plan.ts",
+    "baseline": "tsx src/cli/generate-baseline.ts",
+    "run:test": "tsx src/cli/run-test.ts",
+    "probe": "tsx src/tools/probe.ts",
+    "drill": "tsx src/tools/fault-drill.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test \"src/**/*.test.ts\"",
+    "approve": "tsx src/cli/approve-plan.ts",
+    "serve": "tsx src/server/main.ts",
+    "serve:watch": "tsx watch src/server/main.ts",
+    "record:fixture": "tsx src/tools/record-fixture.ts",
+    "models": "tsx src/tools/check-models.ts",
+    "web:install": "npm --prefix web install",
+    "web:dev": "npm --prefix web run dev",
+    "web:build": "npm --prefix web run build",
+    "web:typecheck": "npm --prefix web run typecheck",
+    "dev": "npm run web:build && npm run serve",
+    "export:cache": "tsx src/tools/export-cache.ts",
+    "mcp": "tsx src/mcp/server.ts",
+    "explore": "tsx src/cli/explore.ts",
+    "llm:check": "tsx src/tools/llm-check.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "EdgeForge — attributes a test failure to the test or to the application, and repairs only the former",
+  "dependencies": {
+    "@google/genai": "^2.19.0",
+    "axe-core": "^4.13.0",
+    "dotenv": "^17.4.2",
+    "playwright": "^1.62.1",
+    "tsx": "^4.23.13",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^26.4.0",
+    "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}

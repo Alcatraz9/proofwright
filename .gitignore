@@ -1,0 +1,25 @@
+node_modules/
+.env
+.DS_Store
+data/runs/
+
+# Runtime state — the database and captured artifacts are not source.
+data/qa.db
+data/qa.db-shm
+data/qa.db-wal
+data/artifacts/
+
+# The dashboard build. Produced by `npm run web:build`, and produced again inside
+# the container by the Docker build, so a committed copy would only ever be a
+# stale duplicate of something reproducible.
+web/dist/
+
+# Generated Playwright specs and their run output. Reproduced by any mission, and a
+# committed copy would go stale the moment a heal rewrote a locator.
+tests/generated/
+test-results/
+
+# Design-process scaffolding from the impeccable skill: surface briefs, review
+# packets, critique snapshots and captures. It informed the build and is not part
+# of the product; DESIGN.md is the durable record that ships.
+.impeccable/

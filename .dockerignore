@@ -1,0 +1,15 @@
+# Keep the build context small and the image free of local state.
+node_modules
+web/node_modules
+web/dist
+.git
+.env
+data/qa.db
+data/qa.db-shm
+data/qa.db-wal
+data/artifacts
+tests/generated
+test-results
+.impeccable
+docs
+*.log

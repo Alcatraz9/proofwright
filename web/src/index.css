@@ -1,0 +1,327 @@
+@import 'tailwindcss';
+
+/**
+ * Type is self-hosted, not linked.
+ *
+ * The container has no outbound network and a cold filesystem, so a webfont
+ * request would either block first paint or silently fall back to a system face
+ * on the one surface whose whole job is reading dense measurements.
+ *
+ * Both faces are variable and carry the axes the interface actually varies:
+ * Archivo moves on width as well as weight, which is what lets a label be
+ * condensed and a readout be normal-width from one file instead of two. Latin
+ * subset only — 90KB and 26KB.
+ */
+@font-face {
+  font-family: 'Archivo Variable';
+  src: url('/fonts/archivo-latin-var.woff2') format('woff2-variations');
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Azeret Mono Variable';
+  src: url('/fonts/azeret-mono-latin-var.woff2') format('woff2-variations');
+  font-weight: 400 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+/**
+ * Palette.
+ *
+ * Every value here was solved by `node web/scripts/contrast.mjs`, which computes
+ * oklch -> linear sRGB -> WCAG for each text token against each surface it can
+ * land on. Run it before changing any of these; the previous palette was set by
+ * eye and shipped two text tiers 0.04 of lightness apart that both "passed AA"
+ * and were indistinguishable on adjacent lines, plus one token referenced in ~70
+ * places that was never defined at all and so inherited body colour.
+ *
+ * Three surfaces and three text tiers, deliberately. A fourth surface pushed the
+ * dimmest tier to 4.00:1 and the only escapes were a hierarchy too fine to see or
+ * a promise about where a token lands that no component can keep. Separation is
+ * carried by hairline rules; subordination is carried by width, case and tracking
+ * rather than by dimming text toward the floor.
+ *
+ * Worst gated pair is alarm on plate-200 at 5.37:1. Tiers step 15.48 / 10.97 /
+ * 7.22 against the page.
+ *
+ * Two chromatic tokens, both semantic, neither decorative. `signal` is caution
+ * and is simultaneously every interactive affordance, so nothing on the surface
+ * is coloured without either asking for action or being action. `alarm` is
+ * reserved for one meaning: the application is at fault. There is deliberately no
+ * green — a passing step is quiet achromatic, because a wall of green pills is
+ * what this replaced and because "nothing to see here" should not compete for
+ * attention with the one row that needs it.
+ */
+@theme {
+  --color-plate-000: oklch(0.205 0.004 250);
+  --color-plate-100: oklch(0.245 0.004 250);
+  --color-plate-200: oklch(0.285 0.005 250);
+
+  --color-rule: oklch(0.38 0.006 250);
+  --color-rule-strong: oklch(0.46 0.007 250);
+
+  --color-read-100: oklch(0.95 0.003 250);
+  --color-read-200: oklch(0.84 0.004 250);
+  --color-read-300: oklch(0.72 0.005 250);
+
+  --color-signal: oklch(0.8 0.14 78);
+  --color-signal-ink: oklch(0.86 0.11 80);
+  --color-alarm: oklch(0.72 0.17 25);
+  --color-alarm-ink: oklch(0.78 0.14 27);
+
+  --font-sans: 'Archivo Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Azeret Mono Variable', ui-monospace, monospace;
+
+  --radius-plate: 2px;
+}
+
+/**
+ * Reading registers.
+ *
+ * Four, and each is a different shape rather than a different grey: a condensed
+ * tracked capital for what a thing is called, an extended medium for the sentence
+ * that states a finding, normal width for prose, and tabular mono for anything
+ * that has to line up in a column.
+ */
+@layer components {
+  /* What a field is called. Condensed and tracked so it reads as subordinate to
+     running prose while staying at full contrast. */
+  .label-cut {
+    font-family: var(--font-sans);
+    font-stretch: 78%;
+    font-weight: 600;
+    font-size: 12px;
+    line-height: 1.35;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-read-300);
+  }
+
+  .label-cut-bright {
+    color: var(--color-read-100);
+  }
+
+  /* The sentence that states a finding. Extended, so it carries width across the
+     full measure without needing size alone to do the work. */
+  .readout {
+    font-family: var(--font-sans);
+    font-stretch: 112%;
+    font-weight: 500;
+    letter-spacing: -0.005em;
+    text-wrap: balance;
+  }
+
+  /* Anything that must align in a column: counts, durations, ratios, scores. */
+  .figures {
+    font-variant-numeric: tabular-nums lining-nums;
+    font-feature-settings: 'tnum' 1, 'lnum' 1;
+  }
+
+  .mono-figures {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums lining-nums;
+    letter-spacing: -0.01em;
+  }
+
+  /*
+   * Prose measure, expressed in em rather than ch.
+   *
+   * `ch` is the width of the zero glyph, and Archivo's is about 0.66em — so a
+   * 68ch cap resolved to 816px at the finding size, which holds roughly 91
+   * average characters, not 68. Average prose character width is nearer 0.5em, so
+   * 36em lands at about 72 characters at every size this is used at instead of
+   * drifting wider as the text gets bigger.
+   */
+  .measure {
+    max-width: 36em;
+  }
+}
+
+html {
+  color-scheme: dark;
+}
+
+/**
+ * Flat ground, no washes.
+ *
+ * The previous build laid two radial colour fields over the page. At any opacity
+ * that made them visible they read as a generated gradient backdrop, and they
+ * lightened the backdrop unpredictably so text contrast depended on where on the
+ * page a node happened to sit. A panel bezel is one even value; the rules do the
+ * separating.
+ */
+body {
+  margin: 0;
+  background: var(--color-plate-000);
+  color: var(--color-read-200);
+  font-family: var(--font-sans);
+  font-synthesis-weight: none;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/**
+ * Browser surfaces. These ship with defaults that belong to no design system and
+ * are the cheapest tell that a page was assembled rather than built.
+ */
+::selection {
+  background: color-mix(in oklch, var(--color-signal) 30%, transparent);
+  color: var(--color-read-100);
+}
+
+* {
+  caret-color: var(--color-signal);
+}
+
+*::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--color-plate-000);
+  border-left: 1px solid var(--color-rule);
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--color-rule);
+  border: 3px solid var(--color-plate-000);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--color-rule-strong);
+}
+
+/* Firefox */
+* {
+  scrollbar-color: var(--color-rule) var(--color-plate-000);
+  scrollbar-width: thin;
+}
+
+/**
+ * Traces.
+ *
+ * The step channel is the only drawn element on the surface, and the four trace
+ * styles are load-bearing: they are one of the three non-colour channels that
+ * keep the six verdict states apart, alongside the terminus glyph and the written
+ * label. Colour is never the only difference between two states.
+ */
+.trace {
+  --trace-color: var(--color-rule-strong);
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  border-left-width: 1px;
+  border-left-color: var(--trace-color);
+}
+
+.trace-solid {
+  border-left-style: solid;
+}
+
+.trace-dashed {
+  border-left-style: dashed;
+}
+
+.trace-dotted {
+  border-left-style: dotted;
+}
+
+/* A repair: the channel visibly breaks and rejoins. Drawn as a doubled rule so it
+   is distinguishable from a plain pass without relying on hue. */
+.trace-spliced {
+  border-left-style: solid;
+  width: 3px;
+  border-right-width: 1px;
+  border-right-style: solid;
+  border-right-color: var(--trace-color);
+}
+
+/**
+ * The one authored moment: a failure being attributed.
+ *
+ * When a step's classification lands, the finding resolves from undetermined to
+ * one of two causes. The split is drawn once, from the class arriving rather than
+ * a timer, and leaves nothing behind — a marker that kept moving would read as
+ * still undecided.
+ *
+ * Transform and opacity only, because the page is consuming an event stream while
+ * the server drives a real browser.
+ */
+@keyframes attribute-settle {
+  0% {
+    transform: translateY(-6px);
+    opacity: 0;
+  }
+  100% {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+.attribute-settle {
+  animation: attribute-settle 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes trace-advance {
+  0% {
+    transform: scaleY(0);
+  }
+  100% {
+    transform: scaleY(1);
+  }
+}
+
+/* A live channel extending. Scale only, from the top, so nothing repaints. */
+.trace-advance {
+  transform-origin: top;
+  animation: trace-advance 520ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/**
+ * Liveness without a glow.
+ *
+ * A zero-offset chromatic halo is the most reliable signature of a generated
+ * interface, and the previous build carried one on the running step where no idle
+ * scan could see it and every live demo could. Liveness is opacity on a rule.
+ */
+@keyframes channel-live {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.channel-live {
+  animation: channel-live 1.7s ease-in-out infinite;
+}
+
+/**
+ * Reduced motion removes movement, not meaning. The previous build flattened every
+ * animation to 0.01ms, which also erased the two that carry state rather than
+ * decoration. A user asking for less motion is not asking to be told less.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .attribute-settle,
+  .trace-advance {
+    animation: none;
+  }
+
+  .channel-live {
+    animation-duration: 3.4s;
+  }
+
+  *,
+  *::before,
+  *::after {
+    transition-duration: 120ms !important;
+  }
+}
