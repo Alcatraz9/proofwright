@@ -350,9 +350,25 @@ export async function crawl(page: Page, options: CrawlOptions): Promise<SiteMap>
 
     if (next.depth < depthLimit) {
       for (const link of links) {
-        if (!visited.has(link) && !queue.some((entry) => entry.url === link)) {
-          queue.push({ url: link, depth: next.depth + 1 });
+        if (visited.has(link) || queue.some((entry) => entry.url === link)) continue;
+        /**
+         * One representative per URL template, as a hard rule rather than a
+         * preference. The ranked dequeue already preferred unseen shapes, but
+         * still fell back to siblings when nothing new was queued — so
+         * /book/1 through /book/30 could drain the page budget after all once
+         * every distinct shape had its turn. A sibling of an already visited
+         * or queued shape is now not enqueued at all; it lands in `unvisited`
+         * with the reason, so the map stays honest about the deliberate skip.
+         */
+        const shape = urlShape(link);
+        if (visitedShapes.has(shape) || queue.some((entry) => urlShape(entry.url) === shape)) {
+          unvisited.push({
+            url: link,
+            reason: 'Same page template as one already explored; one representative suffices.',
+          });
+          continue;
         }
+        queue.push({ url: link, depth: next.depth + 1 });
       }
     } else {
       for (const link of links) {

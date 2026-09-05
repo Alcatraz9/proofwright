@@ -181,22 +181,22 @@ export function renderLogin(
   const emailField = good
     ? `<div class="field">
       <label for="${ids.emailInput}">Email</label>
-      <input type="email" id="${ids.emailInput}" name="email" data-testid="login-email"
+      <input type="email" id="${ids.emailInput}" name="email" data-testid="${ids.emailInput}"
              autocomplete="username" required>
     </div>`
     : `<div class="field">
-      <input type="email" id="${ids.emailInput}" name="email" data-testid="login-email"
+      <input type="email" id="${ids.emailInput}" name="email" data-testid="${ids.emailInput}"
              placeholder="Email" required>
     </div>`;
 
   const passwordField = good
     ? `<div class="field">
       <label for="${ids.passwordInput}">Password</label>
-      <input type="password" id="${ids.passwordInput}" name="password" data-testid="login-password"
+      <input type="password" id="${ids.passwordInput}" name="password" data-testid="${ids.passwordInput}"
              autocomplete="${autocomplete}" required>
     </div>`
     : `<div class="field">
-      <input type="password" id="${ids.passwordInput}" name="password" data-testid="login-password"
+      <input type="password" id="${ids.passwordInput}" name="password" data-testid="${ids.passwordInput}"
              placeholder="Password" autocomplete="${autocomplete}" required>
     </div>`;
 
@@ -240,7 +240,7 @@ export function renderLogin(
   <form id="${ids.loginForm}" method="post" action="${base}/login">
     ${emailField}
     ${passwordField}
-    <button type="submit" id="${ids.submitButton}" data-testid="login-submit">${escapeHtml(labels.signIn)}</button>
+    <button type="submit" id="${ids.submitButton}" data-testid="${ids.submitButton}">${escapeHtml(labels.signIn)}</button>
   </form>
   ${alert}
 </div>
