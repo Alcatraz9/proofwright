@@ -254,37 +254,52 @@ async function resolveElement({
   threshold: number;
   onEvent?: (event: BaselineEvent) => void;
 }): Promise<{ element: ExtractedElement; resolution: { confidence: number; reason: string }; model: string }> {
-  const { resolution, model } = await resolveStep({ step, snapshot, history });
+  // A ref that is not on the page is a malformed sample, not an answer — the
+  // model was told to choose from the inventory and returned something outside
+  // it (observed live: "s34" for a page whose refs are "s34e0".."s34e16"). One
+  // resample is cheap against aborting a whole recording; a second bad ref is
+  // treated as the model's answer and surfaced.
+  const attempts = 2;
+  let lastRef = '';
 
-  onEvent?.({
-    type: 'resolved',
-    stepId: step.id,
-    ref: resolution.ref,
-    confidence: resolution.confidence,
-    reason: resolution.reason,
-  });
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const { resolution, model } = await resolveStep({ step, snapshot, history });
 
-  if (resolution.ref === null) {
-    throw new BaselineError(
-      step,
-      `No element on ${snapshot.url} matches this step. Model said: ${resolution.reason}`,
-    );
+    onEvent?.({
+      type: 'resolved',
+      stepId: step.id,
+      ref: resolution.ref,
+      confidence: resolution.confidence,
+      reason: resolution.reason,
+    });
+
+    if (resolution.ref === null) {
+      throw new BaselineError(
+        step,
+        `No element on ${snapshot.url} matches this step. Model said: ${resolution.reason}`,
+      );
+    }
+
+    if (resolution.confidence < threshold) {
+      throw new BaselineError(
+        step,
+        `Best match [${resolution.ref}] scored ${resolution.confidence.toFixed(2)}, below the ` +
+          `${threshold} threshold. Model said: ${resolution.reason}`,
+      );
+    }
+
+    const element = snapshot.elements.find((el) => el.ref === resolution.ref);
+    if (element) return { element, resolution, model };
+
+    lastRef = resolution.ref;
+    onEvent?.({
+      type: 'warning',
+      stepId: step.id,
+      message: `Model returned ref "${resolution.ref}", which is not on the page. Asking again.`,
+    });
   }
 
-  if (resolution.confidence < threshold) {
-    throw new BaselineError(
-      step,
-      `Best match [${resolution.ref}] scored ${resolution.confidence.toFixed(2)}, below the ` +
-        `${threshold} threshold. Model said: ${resolution.reason}`,
-    );
-  }
-
-  const element = snapshot.elements.find((el) => el.ref === resolution.ref);
-  if (!element) {
-    throw new BaselineError(step, `Model returned ref "${resolution.ref}", which is not on the page.`);
-  }
-
-  return { element, resolution, model };
+  throw new BaselineError(step, `Model returned ref "${lastRef}", which is not on the page.`);
 }
 
 /**

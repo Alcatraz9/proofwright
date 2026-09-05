@@ -49,7 +49,9 @@ function resolveStrategy(page: Page, locator: Locator): PlaywrightLocator {
 export function describeLocator(locator: Locator): string {
   const base =
     locator.strategy === 'role'
-      ? `role=${locator.role}[name="${locator.name ?? ''}"]`
+      ? locator.name === null
+        ? `role=${locator.role}`
+        : `role=${locator.role}[name="${locator.name}"]`
       : locator.strategy === 'labelledBy'
         ? `after label "${locator.value ?? ''}"`
         : `${locator.strategy}="${locator.value ?? ''}"`;
@@ -133,8 +135,40 @@ export function deriveLocatorCandidates(element: ExtractedElement): Locator[] {
     add({ strategy: 'role', value: null, role: element.role, name: element.text });
   }
 
+  /**
+   * A live region or dialog, located by bare role.
+   *
+   * ARIA never derives these roles' names from their contents, so the named
+   * role candidate above is dead on arrival for them: our extractor names an
+   * `<div role="alert">Invalid credentials</div>` from its text, but Playwright
+   * computes no name for it and `getByRole('alert', { name: ... })` matches
+   * nothing. A text candidate resolves to the inner `<p>` — a different element
+   * — so verification correctly rejects that too. The result was a real,
+   * persistent error message that could not be located at all (OrangeHRM's
+   * invalid-credentials alert, live-verified).
+   *
+   * A bare `getByRole('alert')` is the honest durable locator here: these roles
+   * are announcements and containers that normally occur once. When more than
+   * one exists, uniqueness verification demotes this to positional or rejects
+   * it, same as every other candidate.
+   */
+  if (element.role && BARE_ROLE_LOCATABLE.has(element.role)) {
+    add({ strategy: 'role', value: null, role: element.role, name: null });
+  }
+
   return candidates;
 }
+
+/** Roles whose accessible name never comes from contents (ARIA "name from author"). */
+const BARE_ROLE_LOCATABLE = new Set([
+  'alert',
+  'alertdialog',
+  'dialog',
+  'status',
+  'log',
+  'marquee',
+  'timer',
+]);
 
 const CSS_ID_SAFE = /^[A-Za-z][\w-]*$/;
 
