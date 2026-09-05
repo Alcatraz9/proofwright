@@ -2,9 +2,7 @@ import { useRef, useState } from 'react';
 import { api } from './api/client.ts';
 import { useAsync, usePoll } from './hooks/useAsync.ts';
 import { useHotkeys, useChordShortcuts, useFocusTrap, type Shortcut, type ChordShortcut } from './hooks/useHotkeys.ts';
-import { Console } from './screens/Console.tsx';
 import { Missions } from './screens/Missions.tsx';
-import { History } from './screens/History.tsx';
 import { Plans } from './screens/Plans.tsx';
 import { REGISTER_TEXT, STEP_STATE_STYLE } from './components/status.tsx';
 import { CHANNEL_STATES } from './components/StepChannel.tsx';
@@ -16,22 +14,17 @@ import { Link, useRouter } from './lib/router.tsx';
 /**
  * Investigations own the front door. The product's promise is "give it a URL",
  * so the URL field is the first thing a visitor meets rather than something
- * found behind a tab switch. Console remains the live-run instrument view, one
- * hop away. Releases is gone: the bundled fixture served development, and the
- * product is pointed at external applications from here on.
+ * found behind a tab switch.
+ *
+ * Two tabs, down from four. Releases went when the bundled fixture stopped being
+ * the thing under test. Console and History went with the mission view: an
+ * investigation now carries its own stage-by-stage account, which is the same
+ * ground Console covered per-run and History covered per-suite, told once.
  */
 const NAV = [
   { to: '/', label: 'Investigations', match: (path: string) => path === '/' || path.startsWith('/missions') },
-  { to: '/console', label: 'Console', match: (path: string) => path.startsWith('/console') },
   { to: '/plans', label: 'Plans', match: (path: string) => path.startsWith('/plans') },
-  { to: '/history', label: 'History', match: (path: string) => path.startsWith('/history') },
 ];
-
-export interface AppShortcutActions {
-  startRun: () => void;
-  cancelRun: () => void;
-  toggleHealing: () => void;
-}
 
 export function App() {
   const { path, navigate } = useRouter();
@@ -46,12 +39,6 @@ export function App() {
   // activeElement on <body>, so focus was lost when it closed.
   const helpButtonRef = useRef<HTMLButtonElement>(null);
 
-  const [actions, setActions] = useState<AppShortcutActions>({
-    startRun: () => {},
-    cancelRun: () => {},
-    toggleHealing: () => {},
-  });
-
   const shortcuts: Shortcut[] = [
     { combo: '?', label: 'Open this panel', handler: () => setHelpOpen((prev) => !prev) },
     {
@@ -62,24 +49,11 @@ export function App() {
         else return false;
       },
     },
-    {
-      combo: 'Ctrl+Enter',
-      label: 'Replay the armed specification',
-      handler: () => {
-        if (!path.startsWith('/console')) navigate('/console');
-        actions.startRun();
-      },
-      activeOn: ['/console'],
-    },
-    { combo: 'Ctrl+.', label: 'Halt the run in flight', handler: () => actions.cancelRun(), activeOn: ['/console'] },
-    { combo: 'Ctrl+H', label: 'Arm or disarm repairs', handler: () => actions.toggleHealing(), activeOn: ['/console'] },
   ];
 
   const chordShortcuts: ChordShortcut[] = [
     { combo: 'g i', label: 'Investigations', handler: () => navigate('/') },
-    { combo: 'g c', label: 'Console', handler: () => navigate('/console') },
     { combo: 'g p', label: 'Plans', handler: () => navigate('/plans') },
-    { combo: 'g h', label: 'History', handler: () => navigate('/history') },
   ];
 
   useHotkeys(shortcuts, path);
@@ -171,7 +145,7 @@ export function App() {
       </header>
 
       <main id="readout" className="mx-auto max-w-[110rem] px-4 py-5 sm:px-6">
-        <Screen path={path} onActions={path.startsWith('/console') ? setActions : undefined} />
+        <Screen path={path} />
       </main>
 
       <footer className="mx-auto max-w-[110rem] px-4 pb-10 pt-5 sm:px-6">
@@ -202,12 +176,10 @@ function Key({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Screen({ path, onActions }: { path: string; onActions?: (actions: AppShortcutActions) => void }) {
+function Screen({ path }: { path: string }) {
   if (path === '/') return <Missions />;
   if (path.startsWith('/missions')) return <Missions />;
-  if (path.startsWith('/console')) return <Console onActions={onActions} />;
   if (path.startsWith('/plans')) return <Plans />;
-  if (path.startsWith('/history')) return <History />;
   return <NotFound path={path} />;
 }
 
@@ -220,7 +192,7 @@ function NotFound({ path }: { path: string }) {
         to="/"
         className={`label-cut mt-4 inline-block text-signal underline underline-offset-2 hover:text-signal-ink ${focusRing}`}
       >
-        Back to the console
+        Back to investigations
       </Link>
     </div>
   );

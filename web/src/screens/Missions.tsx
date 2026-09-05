@@ -297,15 +297,6 @@ function MissionReadout({
             >
               All missions
             </Link>
-            {mission.runId ? (
-              <Link
-                to={`/?run=${encodeURIComponent(mission.runId)}`}
-                title="Watch the step-by-step replay on the console"
-                className={`label-cut border border-rule px-2 py-1 text-read-200 transition-colors hover:border-signal hover:text-signal ${focusRing}`}
-              >
-                Open the run
-              </Link>
-            ) : null}
             {live ? (
               <Button
                 tone="danger"

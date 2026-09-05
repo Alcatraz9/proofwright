@@ -1,22 +1,21 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { api, type ApiError } from '../api/client.ts';
-import type { BaselineView, IntentPlan, IntentStep, PlanRecord, PlanSummary, RunSummary } from '../api/types.ts';
-import { useAsync } from '../hooks/useAsync.ts';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { api } from '../api/client.ts';
+import type { BaselineView, IntentPlan, PlanSummary, RunSummary } from '../api/types.ts';
+import { useAsync, usePoll } from '../hooks/useAsync.ts';
 import {
   Button,
   Code,
   Empty,
   ErrorNote,
-  Field,
   focusRing,
-  inputClass,
   Panel,
   PanelHeader,
   Reveal,
   Spinner,
 } from '../components/ui.tsx';
 import { Chip, PlanStatusChip, RunStatusChip } from '../components/status.tsx';
-import { IconDisclose } from '../components/icons.tsx';
+import { StepChannel } from '../components/StepChannel.tsx';
+import { foldEvents } from '../state/runModel.ts';
 import { ago, when } from '../lib/format.ts';
 import { parseLocator, STRATEGY_NOTE } from '../lib/locator.ts';
 import { Link, useRouter } from '../lib/router.tsx';
@@ -25,9 +24,13 @@ import { Link, useRouter } from '../lib/router.tsx';
  * Plans, and the gate.
  *
  * A draft cannot run. The server returns 409 for it, and the interface refuses it
- * too, because a gate one interface can walk around is not a gate. Editing sends a
- * plan back to draft — the approval applied to what was reviewed, not to whatever
- * it has become since — and the editor says so before you save rather than after.
+ * too, because a gate one interface can walk around is not a gate.
+ *
+ * Read-only, by removal. The step editor and the un-approve control were both here
+ * and are both gone: a plan is what the pipeline generated and a person signed off,
+ * and the two ways to quietly change that out from under the signature were the
+ * editor and the return-to-draft button. What remains is the sign-off, the recorded
+ * baseline, and the ability to run it.
  */
 
 export function Plans() {
@@ -174,35 +177,30 @@ function approvalWarnings(plan: IntentPlan): string[] {
 /**
  * Inline confirm/cancel that replaces the trigger button. Shows a pre-approval
  * summary (step count, last edit, warnings) so the reviewer sees what they are
- * approving. The same pattern is used for both approve and un-approve.
+ * approving.
  */
 function ConfirmGate({
-  action,
   plan,
   updatedAt,
   busy,
   onConfirm,
   onCancel,
 }: {
-  action: 'approve' | 'unapprove';
   plan: IntentPlan;
   updatedAt: string;
   busy: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  const isApprove = action === 'approve';
-  const warnings = isApprove ? approvalWarnings(plan) : [];
+  const warnings = approvalWarnings(plan);
 
   return (
     <div
       role="alertdialog"
-      aria-label={isApprove ? 'Confirm plan approval' : 'Confirm returning plan to draft'}
+      aria-label="Confirm plan approval"
       className="rounded-plate border border-rule bg-plate-200 px-4 py-3 space-y-2.5"
     >
-      <p className="text-[13px] font-semibold text-read-100">
-        {isApprove ? 'Approve this plan?' : 'Return this plan to draft?'}
-      </p>
+      <p className="text-[13px] font-semibold text-read-100">Approve this plan?</p>
 
       <dl className="text-[12px] text-read-200 space-y-1">
         <div className="flex gap-2">
@@ -215,7 +213,7 @@ function ConfirmGate({
         </div>
       </dl>
 
-      {isApprove && warnings.length > 0 ? (
+      {warnings.length > 0 ? (
         <div
           role="alert"
           className="rounded-plate border border-signal/40 bg-plate-000 px-3 py-2 space-y-1"
@@ -231,20 +229,10 @@ function ConfirmGate({
         </div>
       ) : null}
 
-      {!isApprove ? (
-        <p className="measure text-[12px] leading-relaxed text-read-300">
-          The plan will return to draft and cannot be run until it is approved again.
-        </p>
-      ) : null}
-
       <div className="flex gap-2 pt-1">
-        <Button
-          tone={isApprove ? 'primary' : 'danger'}
-          onClick={onConfirm}
-          disabled={busy}
-        >
+        <Button tone="primary" onClick={onConfirm} disabled={busy}>
           {busy ? <Spinner /> : null}
-          {isApprove ? 'Yes, approve' : 'Yes, return to draft'}
+          Yes, approve
         </Button>
         <Button onClick={onCancel} disabled={busy}>
           Cancel
@@ -260,26 +248,25 @@ function ConfirmGate({
 
 function PlanDetail({ planId }: { planId: string }) {
   const detail = useAsync(() => api.plan(planId), [planId]);
-  const [busy, setBusy] = useState<'approve' | 'unapprove' | null>(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState<'approve' | 'unapprove' | null>(null);
+  const [confirming, setConfirming] = useState(false);
 
   const record = detail.data?.plan ?? null;
   const baseline = detail.data?.baseline ?? null;
   const runs = detail.data?.runs ?? [];
 
-  const gate = async (action: 'approve' | 'unapprove'): Promise<void> => {
-    setBusy(action);
+  const approve = async (): Promise<void> => {
+    setBusy(true);
     setError(null);
     try {
-      if (action === 'approve') await api.approve(planId);
-      else await api.unapprove(planId);
-      setConfirming(null);
+      await api.approve(planId);
+      setConfirming(false);
       detail.reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   };
 
@@ -349,35 +336,28 @@ function PlanDetail({ planId }: { planId: string }) {
           ) : null}
 
           <footer className="border-t border-rule px-4 py-3.5 space-y-3">
-            {confirming !== null ? (
+            {confirming ? (
               <ConfirmGate
-                action={confirming}
                 plan={record.plan}
                 updatedAt={record.updatedAt}
-                busy={busy !== null}
-                onConfirm={() => void gate(confirming)}
-                onCancel={() => setConfirming(null)}
+                busy={busy}
+                onConfirm={() => void approve()}
+                onCancel={() => setConfirming(false)}
               />
             ) : (
               <div className="flex flex-wrap items-center gap-3">
-                {record.status === 'APPROVED' ? (
-                  <Button onClick={() => setConfirming('unapprove')} disabled={busy !== null}>
-                    Send back for review
-                  </Button>
-                ) : (
+                {record.status === 'APPROVED' ? null : (
                   <Button
                     tone="primary"
-                    onClick={() => setConfirming('approve')}
-                    disabled={busy !== null || record.plan.steps.length === 0}
+                    onClick={() => setConfirming(true)}
+                    disabled={busy || record.plan.steps.length === 0}
                   >
                     Approve this plan
                   </Button>
                 )}
 
                 {runnable ? (
-                  <Link to="/" className={`label-cut text-signal hover:text-signal-ink ${focusRing}`}>
-                    Run it
-                  </Link>
+                  <RunLauncher planId={planId} onFinished={detail.reload} />
                 ) : (
                   <span className="text-[12px] text-read-300">
                     {baseline === null
@@ -389,10 +369,6 @@ function PlanDetail({ planId }: { planId: string }) {
             )}
           </footer>
         </Panel>
-      </Reveal>
-
-      <Reveal delay={60}>
-        <PlanEditor record={record} onSaved={detail.reload} />
       </Reveal>
 
       {baseline ? (
@@ -423,326 +399,171 @@ function Meta({ label, value }: { label: string; value: ReactNode }) {
 // The editor — with progressive disclosure
 // ---------------------------------------------------------------------------
 
-function PlanEditor({ record, onSaved }: { record: PlanRecord; onSaved: () => void }) {
-  const [draft, setDraft] = useState<IntentPlan>(record.plan);
-  const [issues, setIssues] = useState<{ path: string; message: string }[]>([]);
+/**
+ * Starts a replay and keeps it on screen while it happens.
+ *
+ * "Run it" used to be a link to the front door, which started nothing — the run
+ * lived on a separate console screen that no longer exists. It now posts the run
+ * and holds it here, on the plan that owns it, because the question a reader has
+ * after pressing it is about this plan and answering it elsewhere means finding
+ * the way back.
+ *
+ * Polled rather than streamed, matching how an investigation follows its own
+ * stages. The server does offer an event stream, and a stream is the better
+ * instrument for a long run — but a replay is seconds to a couple of minutes, a
+ * poll cannot get stuck half-open, and re-reading the whole event log each time
+ * means a reconnect needs no resume logic. `foldEvents` is the same reducer the
+ * recorded view uses, so a run in flight and a run read back from the store draw
+ * from one code path and cannot disagree.
+ *
+ * Healing is deliberately not offered here. The endpoint defaults it off, so this
+ * is a plain replay: the specification against the baseline, and what happened.
+ */
+function RunLauncher({ planId, onFinished }: { planId: string; onFinished: () => void }) {
+  const [runId, setRunId] = useState<string | null>(null);
+  const [ended, setEnded] = useState(false);
+  const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [confirmingSave, setConfirmingSave] = useState(false);
 
-  useEffect(() => {
-    setDraft(record.plan);
-    setIssues([]);
-    setSaved(false);
-    setConfirmingSave(false);
-  }, [record]);
+  // In flight is the only state that blocks the button. A finished run stays on
+  // screen — it is the answer — but it must not go on claiming the runner is busy.
+  const inFlight = runId !== null && !ended;
 
-  const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(record.plan), [draft, record.plan]);
-
-  const issuesFor = (index: number): { path: string; message: string }[] =>
-    issues.filter((issue) => issue.path.startsWith(`steps.${index}.`) || issue.path === `steps.${index}`);
-
-  const updateStep = (index: number, patch: Partial<IntentStep>): void => {
-    setDraft((current) => ({
-      ...current,
-      steps: current.steps.map((step, i) => (i === index ? { ...step, ...patch } : step)),
-    }));
-    setSaved(false);
-    setConfirmingSave(false);
-  };
-
-  const save = async (): Promise<void> => {
-    setSaving(true);
-    setIssues([]);
+  const start = async (): Promise<void> => {
+    setStarting(true);
+    setEnded(false);
     setError(null);
     try {
-      await api.savePlan(record.planId, draft);
-      setSaved(true);
-      setConfirmingSave(false);
-      onSaved();
+      const started = await api.startRun({ planId });
+      setRunId(started.runId);
     } catch (err) {
-      const apiError = err as ApiError;
-      if (apiError.issues) setIssues(apiError.issues);
-      setError(apiError.message);
+      setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setSaving(false);
-    }
-  };
-
-  /** If the plan is approved, saving returns it to draft — require deliberate confirmation. */
-  const handleSave = (): void => {
-    if (record.status === 'APPROVED') {
-      setConfirmingSave(true);
-    } else {
-      void save();
+      setStarting(false);
     }
   };
 
   return (
-    <Panel>
-      <PanelHeader
-        title="Review the steps"
-        subtitle="Held to the same schema the model's output is, so a hand-edited plan cannot be looser than a generated one."
-        right={
-          <span className="mono-figures text-[12px] text-read-300">
-            {draft.steps.length} step{draft.steps.length === 1 ? '' : 's'}
-          </span>
-        }
-      />
-
-      {record.status === 'APPROVED' ? (
-        <p className="measure border-b border-signal/30 bg-plate-000 px-4 py-3 text-[13px] leading-relaxed text-signal">
-          This plan is approved. Saving any edit returns it to draft, because the approval applied to what was
-          reviewed — not to whatever it becomes next. It will need approving again before it can run.
-        </p>
+    <>
+      <Button tone="primary" onClick={() => void start()} disabled={starting || inFlight}>
+        {starting || inFlight ? <Spinner /> : null}
+        {inFlight ? 'Running' : runId === null ? 'Run it' : 'Run it again'}
+      </Button>
+      {error ? <ErrorNote>{error}</ErrorNote> : null}
+      {runId !== null ? (
+        <LiveRun
+          key={runId}
+          runId={runId}
+          onFinished={() => {
+            setEnded(true);
+            // The plan's run list is stale the moment this one lands in it.
+            onFinished();
+          }}
+          onDismiss={() => {
+            setRunId(null);
+            setEnded(false);
+          }}
+        />
       ) : null}
-
-      <div>
-        {draft.steps.map((step, index) => (
-          <CollapsibleStep
-            key={step.id}
-            index={index}
-            step={step}
-            issues={issuesFor(index)}
-            onChange={(patch) => updateStep(index, patch)}
-          />
-        ))}
-      </div>
-
-      {issues.length > 0 ? (
-        <div className="space-y-1.5 border-t border-alarm/40 bg-plate-000 px-4 py-3">
-          <p className="text-[13px] font-medium text-alarm-ink">
-            The edited plan does not satisfy the plan schema. Nothing was saved.
-          </p>
-          {issues.map((issue) => (
-            <p key={`${issue.path}-${issue.message}`} className="mono-figures text-[12px] text-alarm-ink/85">
-              {issue.path || '(root)'}: {issue.message}
-            </p>
-          ))}
-        </div>
-      ) : error ? (
-        <div className="px-4 py-3">
-          <ErrorNote>{error}</ErrorNote>
-        </div>
-      ) : null}
-
-      <footer className="flex flex-wrap items-center gap-3 border-t border-rule px-4 py-3.5">
-        {confirmingSave ? (
-          <div
-            role="alertdialog"
-            aria-label="Confirm saving edits to an approved plan"
-            className="w-full rounded-plate border border-signal/40 bg-plate-000 px-4 py-3 space-y-2.5"
-          >
-            <p className="text-[13px] font-semibold text-signal">Save and return to draft?</p>
-            <p className="measure text-[12px] leading-relaxed text-read-200">
-              This plan is approved. Saving returns it to draft — it will need approving again before it can run.
-            </p>
-            <div className="flex gap-2 pt-1">
-              <Button tone="danger" onClick={() => void save()} disabled={saving}>
-                {saving ? <Spinner /> : null}
-                Yes, save and return to draft
-              </Button>
-              <Button onClick={() => setConfirmingSave(false)} disabled={saving}>
-                Cancel
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <>
-            <Button tone="primary" onClick={handleSave} disabled={!dirty || saving}>
-              {saving ? <Spinner /> : null}
-              Save edits
-            </Button>
-            <Button onClick={() => setDraft(record.plan)} disabled={!dirty || saving}>
-              Discard
-            </Button>
-            <span className="text-[12px] text-read-300">
-              {saved
-                ? 'Saved. The plan is back in draft and needs approving again.'
-                : dirty
-                  ? 'Unsaved edits.'
-                  : 'No changes.'}
-            </span>
-          </>
-        )}
-      </footer>
-    </Panel>
+    </>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Collapsible step — progressive disclosure
-// ---------------------------------------------------------------------------
-
-function CollapsibleStep({
-  index,
-  step,
-  issues,
-  onChange,
+/**
+ * One run, redrawn as it reports.
+ *
+ * `onFinished` fires once and only once. The poll keeps running for one more
+ * cycle after the run ends so the final events are certainly in hand, and a
+ * reload fired on every tick of a finished run would refetch the plan forever.
+ */
+function LiveRun({
+  runId,
+  onFinished,
+  onDismiss,
 }: {
-  index: number;
-  step: IntentStep;
-  issues: { path: string; message: string }[];
-  onChange: (patch: Partial<IntentStep>) => void;
+  runId: string;
+  onFinished: () => void;
+  onDismiss: () => void;
 }) {
-  // Auto-expand if the step has validation errors
-  const hasErrors = issues.length > 0;
-  const [expanded, setExpanded] = useState(hasErrors);
+  const detail = useAsync(() => api.run(runId), [runId]);
+  const notified = useRef(false);
 
-  // Keep expanded if errors appear while collapsed
+  const view = useMemo(
+    () => foldEvents(detail.data?.events ?? []),
+    [detail.data?.events],
+  );
+  const live = detail.data !== null && !view.ended;
+
+  usePoll(detail.reload, 1200, live);
+
   useEffect(() => {
-    if (hasErrors) setExpanded(true);
-  }, [hasErrors]);
+    if (view.ended && !notified.current) {
+      notified.current = true;
+      onFinished();
+    }
+  }, [view.ended, onFinished]);
 
-  const stepLabel = `Step ${index + 1}: ${step.action} ${step.target?.description ?? step.value ?? ''}`.trim();
-  const regionId = `step-editor-${step.id}`;
+  const queued = view.queued !== null && view.started === null;
 
   return (
-    <div className={`border-b border-rule last:border-b-0 ${hasErrors ? 'bg-plate-000' : ''}`}>
-      <button
-        type="button"
-        aria-expanded={expanded}
-        aria-controls={regionId}
-        aria-label={stepLabel}
-        onClick={() => setExpanded((prev) => !prev)}
-        className={`flex w-full items-start gap-2 px-4 py-3 text-left transition-colors hover:bg-plate-200/30 ${focusRing}`}
-      >
-        <span className="label-cut mt-0.5 flex h-6 w-6 flex-none items-center justify-center rounded-plate border border-rule bg-plate-200 text-read-200">
-          {index + 1}
-        </span>
-
-        <span className="mt-0.5 flex-none" aria-hidden="true">
-          <IconDisclose open={expanded} size={14} className="text-read-300" />
-        </span>
-
-        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="flex items-center gap-2">
-            <Code>{step.id}</Code>
-            <span className="text-[12px] font-medium text-read-100">{step.action}</span>
-            <span className="min-w-0 truncate text-[12px] text-read-200">
-              {step.target?.description ?? step.value ?? ''}
+    <div className="w-full">
+      <Panel className="mt-3">
+        <PanelHeader
+          title={
+            <span className="flex flex-wrap items-baseline gap-x-3">
+              <span>{view.ended ? 'Run finished' : queued ? 'Queued' : 'Running'}</span>
+              <span className="mono-figures text-[13px] font-normal text-read-300">{runId}</span>
             </span>
-          </span>
-          {step.intent ? (
-            <span className="measure truncate text-[12px] leading-snug text-read-300">
-              {step.intent}
-            </span>
-          ) : null}
-        </span>
+          }
+          subtitle={
+            queued
+              ? `Waiting for the run slot. ${view.queued?.ahead ?? 0} ahead of it.`
+              : 'Replaying the approved specification against the recorded baseline. Repairs are off.'
+          }
+          right={
+            view.ended ? (
+              <button
+                type="button"
+                onClick={onDismiss}
+                className={`label-cut border border-rule px-2 py-1 text-read-200 transition-colors hover:border-signal hover:text-signal ${focusRing}`}
+              >
+                Dismiss
+              </button>
+            ) : (
+              <Spinner />
+            )
+          }
+        />
 
-        {hasErrors ? (
-          <span className="label-cut mt-0.5 flex-none text-alarm-ink">{issues.length} error{issues.length === 1 ? '' : 's'}</span>
-        ) : !step.expectedOutcome?.description ? (
-          <span className="label-cut mt-0.5 flex-none text-signal/70" title="The specification does not state an outcome for this step. The recorded baseline may still hold assertions for it.">no stated outcome</span>
+        {detail.error ? (
+          <div className="px-4 py-3">
+            <ErrorNote>{detail.error}</ErrorNote>
+          </div>
         ) : null}
-      </button>
 
-      {expanded ? (
-        <div id={regionId} role="region" aria-label={stepLabel} className="px-4 pb-4">
-          <StepEditor step={step} issues={issues} onChange={onChange} />
-        </div>
-      ) : null}
+        {view.errors.length > 0 ? (
+          <div className="space-y-2 px-4 py-3">
+            {view.errors.map((err, index) => (
+              <ErrorNote key={index}>{err.message}</ErrorNote>
+            ))}
+          </div>
+        ) : null}
+
+        <StepChannel steps={view.steps} totalSteps={view.totalSteps} planId={planId(runId)} />
+      </Panel>
     </div>
   );
 }
 
-function StepEditor({
-  step,
-  issues,
-  onChange,
-}: {
-  step: IntentStep;
-  issues: { path: string; message: string }[];
-  onChange: (patch: Partial<IntentStep>) => void;
-}) {
-  const issueFor = (field: string): string | undefined =>
-    issues.find((issue) => issue.path.endsWith(`.${field}`) || issue.path.endsWith(`.${field}.description`))
-      ?.message;
-
-  return (
-    <div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Field label="Action" hint="A closed vocabulary — a value outside it is rejected by the schema." error={issueFor('action')}>
-          <input
-            className={inputClass}
-            value={step.action}
-            onChange={(event) => onChange({ action: event.target.value })}
-          />
-        </Field>
-
-        <Field
-          label="Target description"
-          hint="In human terms, never a selector. This layer has to survive a redesign."
-          error={issueFor('target')}
-        >
-          <input
-            className={inputClass}
-            value={step.target?.description ?? ''}
-            placeholder={step.action === 'navigate' ? 'Not used by navigate' : 'e.g. add to cart button'}
-            onChange={(event) =>
-              onChange({
-                target: event.target.value
-                  ? { description: event.target.value, context: step.target?.context ?? null }
-                  : null,
-              })
-            }
-          />
-        </Field>
-
-        <Field label="Value" hint="For navigate this is the URL; for press, the key name." error={issueFor('value')}>
-          <input
-            className={inputClass}
-            value={step.value ?? ''}
-            onChange={(event) => onChange({ value: event.target.value || null })}
-          />
-        </Field>
-
-        <Field
-          label="Value reference"
-          hint="An environment variable name for anything secret. The plan stores the name, never the value."
-          error={issueFor('valueRef')}
-        >
-          <input
-            className={inputClass}
-            value={step.valueRef ?? ''}
-            placeholder="TEST_PASSWORD"
-            onChange={(event) => onChange({ valueRef: event.target.value || null })}
-          />
-        </Field>
-
-        <Field
-          label="Expected outcome"
-          hint="What a human would see afterwards. A step with no post-condition gives the healer nothing to verify against."
-          error={issueFor('expectedOutcome')}
-        >
-          <input
-            className={inputClass}
-            value={step.expectedOutcome?.description ?? ''}
-            onChange={(event) =>
-              onChange({ expectedOutcome: event.target.value ? { description: event.target.value } : null })
-            }
-          />
-        </Field>
-
-        <Field
-          label="Expected value"
-          hint="Only when the tester named a literal. This is what makes a changed price fail instead of being healed."
-          error={issueFor('expectedValue')}
-        >
-          <input
-            className={inputClass}
-            value={step.expectedValue ?? ''}
-            onChange={(event) => onChange({ expectedValue: event.target.value || null })}
-          />
-        </Field>
-      </div>
-
-      <p className="measure mt-2.5 text-[12px] leading-snug text-read-300">
-        Quoted from the instruction: "{step.sourcePhrase}"
-      </p>
-    </div>
-  );
+/**
+ * A run id is its plan id with a timestamp appended, and the channel wants the
+ * plan to offer a repair against. Read back rather than threaded through, because
+ * the alternative is passing the same string down two components that already
+ * have the run it belongs to.
+ */
+function planId(runId: string): string | null {
+  const match = /^(.*)-\d{4}-\d{2}-\d{2}T/.exec(runId);
+  return match ? match[1]! : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -850,26 +671,30 @@ function describeStoredLocator(locator: {
   return locator.nth === null ? base : `${base} >> nth=${locator.nth}`;
 }
 
+/**
+ * What this plan has been run as, listed rather than opened.
+ *
+ * The rows used to open a step-by-step replay on the console. That screen is
+ * gone, so they state the outcome instead of pretending to a destination — a
+ * row that looks clickable and goes nowhere is worse than a row that never
+ * offered. The per-run account now lives on the investigation that produced it.
+ */
 function PlanRuns({ runs }: { runs: RunSummary[] }) {
-  const { navigate } = useRouter();
   return (
     <Panel>
-      <PanelHeader title="Runs of this plan" subtitle="Opening one replays it from its recorded events." />
+      <PanelHeader title="Runs of this plan" subtitle="Every recorded execution, newest first." />
       <ul>
         {runs.map((run) => (
-          <li key={run.runId} className="border-b border-rule last:border-b-0">
-            <button
-              type="button"
-              onClick={() => navigate(`/?run=${encodeURIComponent(run.runId)}`)}
-              className={`flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-3 text-left transition-colors hover:bg-plate-200/40 ${focusRing}`}
-            >
-              <RunStatusChip status={run.status} />
-              {run.activeVersion ? <Chip tone="accent">{run.activeVersion}</Chip> : null}
-              {run.healCount > 0 ? <Chip tone="heal">{run.healCount} repaired</Chip> : null}
-              <span className="mono-figures ml-auto text-[12px] text-read-300">
-                {run.stepsPassed}/{run.stepsTotal} · {when(run.startedAt)}
-              </span>
-            </button>
+          <li
+            key={run.runId}
+            className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-rule px-4 py-3 last:border-b-0"
+          >
+            <RunStatusChip status={run.status} />
+            {run.activeVersion ? <Chip tone="accent">{run.activeVersion}</Chip> : null}
+            {run.healCount > 0 ? <Chip tone="heal">{run.healCount} repaired</Chip> : null}
+            <span className="mono-figures ml-auto text-[12px] text-read-300">
+              {run.stepsPassed}/{run.stepsTotal} · {when(run.startedAt)}
+            </span>
           </li>
         ))}
       </ul>
