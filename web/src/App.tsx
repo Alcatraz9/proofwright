@@ -71,7 +71,7 @@ export function App() {
       <header className="sticky top-0 z-30 border-b border-rule bg-plate-000">
         <div className="mx-auto flex max-w-[110rem] flex-wrap items-center gap-x-6 gap-y-2 px-4 pb-0 pt-3 sm:px-6">
           <Link to="/" className={`flex items-baseline gap-2.5 ${focusRing}`}>
-            <span className="readout text-[17px] font-semibold tracking-[0.02em] text-read-100">EdgeForge</span>
+            <span className="readout text-[17px] font-semibold tracking-[0.02em] text-read-100">ProofWright</span>
             <span className="hidden text-[13px] text-read-300 sm:inline">Fault attribution for recorded suites</span>
           </Link>
 
@@ -271,7 +271,7 @@ function Legend({
 
         <div className="space-y-6 px-4 py-4">
           <p className="measure text-[13px] leading-relaxed text-read-200">
-            EdgeForge replays a recorded specification against a live application and asks one question of every
+            ProofWright replays a recorded specification against a live application and asks one question of every
             failure: was the element not found, or was the result not what was recorded? The first is a stale test
             and is repaired. The second is the application, and is escalated — never repaired.
           </p>

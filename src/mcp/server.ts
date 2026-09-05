@@ -1,5 +1,5 @@
 /**
- * EdgeForge as an MCP server.
+ * ProofWright as an MCP server.
  *
  * The same capabilities the dashboard calls, exposed to any agent that speaks
  * Model Context Protocol — Claude Desktop, Cursor, Kiro, a custom host. The point
@@ -59,7 +59,7 @@ async function handle(request: Request): Promise<void> {
           version: '0.1.0',
           /**
            * Read by an agent deciding whether to use this at all, so it states the
-           * boundary rather than only the capability: EdgeForge will decline to
+           * boundary rather than only the capability: ProofWright will decline to
            * repair a failing application, and an agent should expect a verdict of
            * needs_review to mean exactly that.
            */

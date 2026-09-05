@@ -36,7 +36,7 @@ export const startMission = register({
   name: 'edgeforge_start_mission',
   title: 'Start a test mission',
   description: [
-    'Point EdgeForge at a running web application and it drives the whole testing lifecycle',
+    'Point ProofWright at a running web application and it drives the whole testing lifecycle',
     'itself: plans the tests, resolves them against the live DOM, executes them, and repairs',
     'the ones that broke because the interface moved. No step in between needs a human.',
     '',
