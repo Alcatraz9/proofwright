@@ -99,6 +99,36 @@ export async function generateBaseline({
     warnIfUnreachable(snapshot, onEvent);
 
     for (const step of plan.steps) {
+      try {
+        await recordStep(step);
+      } catch (err) {
+        /**
+         * A failed step ends the recording — it does not erase it.
+         *
+         * Steps after the failure would run against a state the journey never
+         * reached, so they cannot honestly be recorded. But the steps BEFORE it
+         * were resolved, executed and asserted against the live application,
+         * and throwing them away turned one unresolvable assert into "nothing
+         * to execute" for a whole mission (observed live, repeatedly). A
+         * truncated baseline runs the proven prefix; the warning states what
+         * was cut and why, so the report reads "4 of 7 steps" rather than
+         * pretending completeness. A failure on step 1 still aborts — an empty
+         * baseline is not a suite.
+         */
+        if (!(err instanceof BaselineError) || steps.length === 0) throw err;
+        onEvent?.({
+          type: 'warning',
+          stepId: step.id,
+          message:
+            `Recording stopped here: ${messageOf(err)} The ${steps.length} step(s) already ` +
+            `proven are kept; ${plan.steps.length - steps.length} step(s) from "${step.id}" on ` +
+            'were not recorded because the journey never reached their state.',
+        });
+        break;
+      }
+    }
+
+    async function recordStep(step: IntentStep): Promise<void> {
       // `navigate` acts on the page, not an element, so there is nothing to
       // resolve. Asking the model to match one anyway would have it pick some
       // arbitrary element and store a locator the step never uses.

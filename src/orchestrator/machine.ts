@@ -443,6 +443,7 @@ export async function runMission({ missionId, signal }: RunMissionParams): Promi
     const generated = await generateIntentPlan({
       targetUrl: mission.targetUrl,
       instruction,
+      resolvableCredentialRefs: refs,
       onAttempt: ({ attempt, errors }) => {
         if (attempt > 1) {
           decide(
@@ -513,6 +514,7 @@ export async function runMission({ missionId, signal }: RunMissionParams): Promi
           // One bounded revision. The planner owns schema, validation and
           // grounding; the critic only supplies the corrections.
           const revised = await generateIntentPlan({
+            resolvableCredentialRefs: refs,
             targetUrl: mission.targetUrl,
             instruction: buildRevisionInstruction(instruction, critique),
           });
@@ -648,6 +650,7 @@ export async function runMission({ missionId, signal }: RunMissionParams): Promi
         const gapStarted = Date.now();
         try {
           const extra = await generateIntentPlan({
+            resolvableCredentialRefs: refs,
             targetUrl: mission.targetUrl,
             instruction: buildGapFillingInstruction(gaps, map, refs),
           });

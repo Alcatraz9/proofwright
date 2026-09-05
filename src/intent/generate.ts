@@ -8,6 +8,8 @@ export interface GenerateIntentPlanOptions {
   instruction: string;
   /** Repair attempts after the first try. 0 disables the repair loop. */
   maxRepairs?: number;
+  /** Credential names resolvable for this mission; see validatePlanRules. */
+  resolvableCredentialRefs?: string[];
   onAttempt?: (info: { attempt: number; errors: string[] }) => void;
 }
 
@@ -30,6 +32,7 @@ export async function generateIntentPlan({
   targetUrl,
   instruction,
   maxRepairs = 2,
+  resolvableCredentialRefs,
   onAttempt,
 }: GenerateIntentPlanOptions): Promise<GenerateIntentPlanResult> {
   let prompt = buildPrompt(targetUrl, instruction);
@@ -44,7 +47,7 @@ export async function generateIntentPlan({
 
     const parsed = generatedPlanSchema.safeParse(data);
     const errors: string[] = parsed.success
-      ? validatePlanRules(parsed.data, instruction)
+      ? validatePlanRules(parsed.data, instruction, { resolvableCredentialRefs })
       : parsed.error.issues.map((i) => `${i.path.join('.') || '<root>'}: ${i.message}`);
 
     onAttempt?.({ attempt, errors });

@@ -8,13 +8,54 @@ import { ACTION_RULES, type GeneratedPlan, type IntentStep } from './types.js';
  * `instruction` is the tester's original text, used to ground every step against
  * it. That check is what stops the model padding a plan out of its own priors.
  */
-export function validatePlanRules(plan: GeneratedPlan, instruction: string): string[] {
+export function validatePlanRules(
+  plan: GeneratedPlan,
+  instruction: string,
+  options: {
+    /**
+     * Credential names that can actually be resolved for this mission. When
+     * given, a step referencing a credential outside this list is a hard error
+     * fed back to the model — the enforcement behind "no credentials means
+     * negative tests only". The instruction says it; plans kept ignoring it,
+     * and an ignored instruction costs a whole recording, while a validator
+     * error costs one repair attempt. Wrong-value refs (TEST_WRONG_PASSWORD,
+     * INVALID_EMAIL…) are test data and always allowed: negative cases are
+     * exactly what a credential-less mission should produce.
+     */
+    resolvableCredentialRefs?: string[];
+  } = {},
+): string[] {
   const errors: string[] = [];
   const seenIds = new Set<string>();
   const normalizedInstruction = normalize(instruction);
+  const allowedCredentials = options.resolvableCredentialRefs
+    ? new Set(options.resolvableCredentialRefs)
+    : null;
+
+  const isTestData = (ref: string): boolean =>
+    /^(TEST_)?(WRONG|INVALID|BAD|MALFORMED|FAKE|NONEXISTENT)_/.test(ref);
+  const looksLikeCredential = (ref: string): boolean =>
+    /(EMAIL|USERNAME|USER_NAME|USER|LOGIN|PASSWORD|PASSWD|SECRET|PIN|IDENTITY)/.test(ref);
 
   plan.steps.forEach((step, index) => {
     const where = `${step.id || `step at index ${index}`} (${step.action})`;
+
+    if (
+      allowedCredentials !== null &&
+      step.valueRef !== null &&
+      looksLikeCredential(step.valueRef) &&
+      !isTestData(step.valueRef) &&
+      !allowedCredentials.has(step.valueRef)
+    ) {
+      errors.push(
+        `${where}: references credential "${step.valueRef}" but no such credential was ` +
+          'supplied for this mission. Do not plan a sign-in with real credentials. If the ' +
+          'application has a login form, test it negatively instead: a deliberately wrong ' +
+          'value (use a WRONG_-prefixed ref like TEST_WRONG_PASSWORD) must be refused, and ' +
+          'required fields must reject an empty submission. Otherwise plan on pages that ' +
+          'need no account.',
+      );
+    }
 
     if (seenIds.has(step.id)) errors.push(`${where}: duplicate step id "${step.id}".`);
     seenIds.add(step.id);
