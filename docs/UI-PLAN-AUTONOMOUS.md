@@ -1,4 +1,4 @@
-# EdgeForge — UI plan for the autonomous pipeline
+# ProofWright — UI plan for the autonomous pipeline
 
 The backend changed shape while the redesign was in flight. This document says what
 now exists, what the interface has to show that it currently cannot, and how to
@@ -11,7 +11,7 @@ not reopened here. This is about **what goes on the screen**, not what it looks 
 
 ## 1. What changed
 
-EdgeForge used to be four human-driven steps: write a plan, approve it, record a
+ProofWright used to be four human-driven steps: write a plan, approve it, record a
 baseline, start a run. The dashboard was built for that, and it is a faithful
 interface to a system that no longer works that way.
 
@@ -137,7 +137,7 @@ Do not invent data. Everything the interface shows must come from the endpoints 
 
 From `PRODUCT.md` and `docs/DESIGN-DIRECTION.md`, unchanged:
 
-- **Name is EdgeForge.**
+- **Name is ProofWright.**
 - **The six verdict states stay semantically distinct.** A pass and a pass-via-fallback
   must never read the same. Hues are yours; the distinctions are not. Mission status
   adds `queued`, `running`, `cancelled` and `error` to that vocabulary.

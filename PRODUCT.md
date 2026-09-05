@@ -77,7 +77,7 @@ escalation behaviour in front of the exact audience most likely to test for it.
 
 ## Brand Commitments
 
-- Name: **EdgeForge**. Binding. The interface, README and any deployed title use it.
+- Name: **ProofWright**. Binding. The interface, README and any deployed title use it.
 - The verdict vocabulary must stay **semantically distinct**: pass, pass-via-fallback
   (drift), repaired (healed), failed, needs review, skipped. A pass and a pass-via-fallback
   must never read as the same state. The specific hues are not binding; the distinctions

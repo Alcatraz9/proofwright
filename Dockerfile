@@ -1,4 +1,4 @@
-# EdgeForge — container image
+# ProofWright — container image
 #
 # Two stages. The dashboard is built with a plain Node image, and the server runs on
 # Microsoft's Playwright image, which ships Chromium and its system libraries already

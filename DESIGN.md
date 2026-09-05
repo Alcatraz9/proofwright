@@ -1,5 +1,5 @@
 ---
-name: EdgeForge
+name: ProofWright
 description: Fault attribution for recorded suites
 colors:
   plate-000: "oklch(0.205 0.004 250)"
@@ -79,7 +79,7 @@ components:
     rounded: "{rounded.plate}"
 ---
 
-# Design System: EdgeForge
+# Design System: ProofWright
 
 ## Overview
 

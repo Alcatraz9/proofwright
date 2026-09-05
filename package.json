@@ -30,7 +30,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "EdgeForge — attributes a test failure to the test or to the application, and repairs only the former",
+  "description": "ProofWright — attributes a test failure to the test or to the application, and repairs only the former",
   "dependencies": {
     "@google/genai": "^2.19.0",
     "axe-core": "^4.13.0",

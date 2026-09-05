@@ -1,5 +1,5 @@
 ---
-title: EdgeForge
+title: ProofWright
 emoji: 🔧
 colorFrom: gray
 colorTo: blue
@@ -9,7 +9,7 @@ pinned: false
 short_description: Autonomous test orchestration — a URL in, a working suite out
 ---
 
-# EdgeForge
+# ProofWright
 
 **Point it at a web application. It plans the tests, writes them, runs them, repairs
 the ones the interface broke, and tells you what it could not cover.**

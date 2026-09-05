@@ -1,4 +1,4 @@
-# EdgeForge — architecture
+# ProofWright — architecture
 
 The submission asks for a diagram of the orchestration flow between sub-agents. That
 is the first one below. The rest of this document is what a reader needs to judge

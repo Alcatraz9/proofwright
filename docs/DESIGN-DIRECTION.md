@@ -1,4 +1,4 @@
-# EdgeForge — visual direction handoff
+# ProofWright — visual direction handoff
 
 Written to be read cold. You are building a **replacement visual world** for an existing,
 working dashboard. The direction is already chosen and recorded; your job is to execute it,
@@ -91,7 +91,7 @@ that must align in columns.
 
 ## Binding constraints — do not renegotiate these
 
-- **Name is EdgeForge.** The incumbent header says "Self-healing QA". Rename it, and the
+- **Name is ProofWright.** The incumbent header says "Self-healing QA". Rename it, and the
   README with it.
 - **Six verdict states must stay semantically distinct**: pass, pass-via-fallback (drift),
   repaired (healed), failed, needs review, skipped. A pass and a pass-via-fallback must never

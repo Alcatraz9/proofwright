@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Contrast solver for the EdgeForge palette.
+ * Contrast solver for the ProofWright palette.
  *
  * Every text token is checked against every surface it can land on, in oklch →
  * linear sRGB → WCAG relative luminance. Run it before trusting a hierarchy.
@@ -137,7 +137,7 @@ function main() {
   }
 
   const surfNames = Object.keys(SURFACES);
-  console.log('EdgeForge palette — WCAG contrast, computed from oklch\n');
+  console.log('ProofWright palette — WCAG contrast, computed from oklch\n');
   console.log(`${'token'.padEnd(12)}${'hex'.padEnd(10)}${surfNames.map((s) => s.padStart(11)).join('')}`);
   console.log('-'.repeat(12 + 10 + surfNames.length * 11));
 

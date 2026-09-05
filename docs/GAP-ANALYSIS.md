@@ -1,4 +1,4 @@
-# EdgeForge — gap analysis against the Aivar problem statement
+# ProofWright — gap analysis against the Aivar problem statement
 
 Source: *Bessemer Tech Catalyst — Problem Statement, AI/ML Track: Autonomous Test
 Orchestration Agent*, Aivar Innovations, September 2026.
@@ -30,7 +30,7 @@ The statement's §1 names the exact gap it wants closed:
 > when to escalate — without a human directing each step. Engineering teams that adopt these
 > tools still carry the coordination burden themselves.
 
-EdgeForge today **is** one of the tools that §1 describes as insufficient. It plans, generates,
+ProofWright today **is** one of the tools that §1 describes as insufficient. It plans, generates,
 executes and heals — each competently, several of them unusually well — and it requires a human
 to direct every transition. The coordination burden is not reduced; it is formalised into four
 commands and an approval gate.
