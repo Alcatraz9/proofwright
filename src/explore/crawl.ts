@@ -213,6 +213,7 @@ export async function crawl(page: Page, options: CrawlOptions): Promise<SiteMap>
             depth: next.depth,
             forms,
             links: [],
+            affordances: affordancesIn(snapshot.elements),
             destructiveActions: destructiveActionsIn(snapshot.elements),
             blindSpots: countBlindSpots(snapshot),
             behindAuth: false,
@@ -268,6 +269,7 @@ export async function crawl(page: Page, options: CrawlOptions): Promise<SiteMap>
       depth: next.depth,
       forms,
       links,
+      affordances: affordancesIn(snapshot.elements),
       destructiveActions: destructiveActionsIn(snapshot.elements),
       blindSpots: countBlindSpots(snapshot),
       /**
@@ -490,6 +492,28 @@ function destructiveActionsIn(elements: ExtractedElement[]): string[] {
     if (DESTRUCTIVE_HINTS.some((hint) => label.includes(hint))) {
       found.add(describe(element));
     }
+  }
+  return [...found];
+}
+
+/**
+ * The named clickable things on a page, for the planner's evidence base.
+ *
+ * Buttons and links by accessible name, destructive ones excluded (they are
+ * listed separately with a do-not-operate instruction), deduplicated and capped:
+ * the point is "what can be done here", not an inventory — the recorder gets
+ * the full inventory later, against the live page.
+ */
+function affordancesIn(elements: ExtractedElement[], cap = 15): string[] {
+  const found = new Set<string>();
+  for (const element of elements) {
+    if (!element.interactive) continue;
+    if (element.role !== 'button' && element.role !== 'link') continue;
+    const name = element.accessibleName.trim();
+    if (name.length < 2 || name.length > 60) continue;
+    if (DESTRUCTIVE_HINTS.some((hint) => name.toLowerCase().includes(hint))) continue;
+    found.add(name);
+    if (found.size >= cap) break;
   }
   return [...found];
 }

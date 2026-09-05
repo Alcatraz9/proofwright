@@ -73,6 +73,18 @@ export const pageStateSchema = z.object({
   /** Same-origin destinations found here, already resolved and de-duplicated. */
   links: z.array(z.string()),
   /**
+   * Named clickable things on this page — buttons and links, by accessible name.
+   *
+   * The planner's whole discipline is that every step traces to observed
+   * evidence, and forms alone are not the evidence: a page whose interactions
+   * are links and buttons (a listing, a catalogue, a dashboard) summarised as
+   * "no forms" reads as a dead end, and the planner fills the vacuum by
+   * inventing plausible affordances — a click on "Add Book" that demoqa's book
+   * store never offered, failing the mission at step-1 (live). Capped and
+   * defaulted so site maps cached before this field existed still parse.
+   */
+  affordances: z.array(z.string()).default([]),
+  /**
    * Actions that look destructive, by their accessible name. Recorded rather than
    * performed: a crawl that clicks "Delete account" to see what happens has
    * damaged the application it was sent to inspect.
@@ -168,12 +180,26 @@ export function summariseForPlanner(map: SiteMap, maxPages = 4): string {
         }.`,
       );
     }
+    /**
+     * What can actually be clicked here, by name. Without this, a page whose
+     * interactions are links and buttons rather than forms reads as a dead end,
+     * and the planner fills the vacuum with plausible inventions — a click on
+     * "Add Book" that the application never offered fails the mission at
+     * step-1 before anything is learned.
+     */
+    if (page.affordances.length) {
+      lines.push(`    Clickable here: ${page.affordances.map((a) => `"${a}"`).join(', ')}.`);
+    }
     if (page.destructiveActions.length) {
       lines.push(
         `    Do not operate these, they destroy data: ${page.destructiveActions.join(', ')}.`,
       );
     }
   }
+
+  lines.push(
+    'Plan clicks only on things named above. If a journey would need a control this list does not show, the page does not offer it — plan the journey the listed controls support instead.',
+  );
 
   if (map.auth.wallFound) {
     lines.push(

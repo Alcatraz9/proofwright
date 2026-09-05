@@ -175,7 +175,14 @@ export async function runMission({ missionId, signal }: RunMissionParams): Promi
         const authCompatible = !cached.siteMap.auth.wallFound
           ? true
           : cached.siteMap.auth.authenticated === wantAuth;
-        if (fresh && authCompatible) {
+        // A map crawled before affordances were recorded starves the planner of
+        // what each page offers — the exact defect the field fixed. Such a map
+        // parses (the field defaults to []) but is not worth reusing when any
+        // page plainly had clickable content the map does not name.
+        const affordanceEra = cached.siteMap.pages.every(
+          (p) => (p.affordances ?? []).length > 0 || p.elementCount === 0,
+        );
+        if (fresh && authCompatible && affordanceEra) {
           siteMap = cached.siteMap;
           reusedFrom = { missionId: cached.missionId, ageMinutes: Math.round(ageMs / 60_000) };
         }
