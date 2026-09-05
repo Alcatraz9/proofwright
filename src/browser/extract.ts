@@ -144,8 +144,56 @@ let extractionPass = 0;
  * Each element is stamped with `data-qa-ref` so the resolver can act on exactly
  * the element the model chose. That attribute is scaffolding for this run only —
  * the durable locator is always derived from the page's own attributes.
+ *
+ * Two failure modes on slow real-world applications are absorbed here rather
+ * than surfaced, because both are races and not answers:
+ *
+ * - "Execution context was destroyed": the extraction fired while a navigation
+ *   was in flight (a click whose response takes longer than `settle`'s ceiling —
+ *   OrangeHRM's demo takes ~4.4s from Login to dashboard). The right response is
+ *   to wait for the new document and extract *that*, not to abort the recording.
+ * - An empty inventory on a page that is still hydrating: an SPA can reach
+ *   `domcontentloaded` with a bare root div, so zero elements usually means
+ *   "too early", not "nothing there". Retried briefly; a genuinely empty page
+ *   still comes back empty after the retries and is reported as such.
  */
 export async function extractPage(page: Page, maxElements = 120): Promise<PageSnapshot> {
+  const attempts = 4;
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    let snapshot: PageSnapshot;
+    try {
+      snapshot = await extractPageOnce(page, maxElements);
+    } catch (err) {
+      if (!isContextDestroyed(err)) throw err;
+      lastError = err;
+      // A navigation is (or was) in flight. Wait for the destination document
+      // to exist, give the SPA a beat to render, and extract the new page.
+      await page.waitForLoadState('domcontentloaded', { timeout: 10_000 }).catch(() => {});
+      await page.waitForTimeout(500);
+      continue;
+    }
+
+    if (snapshot.elements.length > 0 || attempt === attempts - 1) return snapshot;
+    // Empty inventory: likely pre-hydration. Wait and look again.
+    await page.waitForTimeout(1_500);
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error('Page extraction failed: the page kept navigating away.');
+}
+
+function isContextDestroyed(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return (
+    message.includes('Execution context was destroyed') ||
+    message.includes('Cannot find context with specified id')
+  );
+}
+
+async function extractPageOnce(page: Page, maxElements: number): Promise<PageSnapshot> {
   const pass = extractionPass++;
   return page.evaluate(
     ({ refAttribute, cap, pass }) => {
