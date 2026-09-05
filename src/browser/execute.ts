@@ -22,6 +22,65 @@ export interface ExecuteParams {
   value: string | null;
 }
 
+export interface AdaptedSelect {
+  /** The option value that will actually be selected. */
+  value: string;
+  /** Present when the intended value was not an option and a substitute was chosen. */
+  note: string | null;
+}
+
+/**
+ * Reconciles an intended value with a `<select>`'s real options, or reports
+ * that the element is not a select at all (`null`).
+ *
+ * Two realities no planner can know in advance meet here. A plan says "fill
+ * the departure city" because nothing in prose distinguishes a dropdown from a
+ * text field — but Playwright's `fill()` throws on a select, so the action has
+ * to become a selection. And an authored value ("Seattle") is a guess made
+ * before anyone saw the page; a select only accepts what it offers (Paris,
+ * Boston…, live-verified on blazedemo.com). The recorder is standing in front
+ * of the real options, so it matches the intent against them — exact value or
+ * label first, then containment — and otherwise takes the first real option
+ * and says so. A substituted value is a disclosure, not a silent fix.
+ */
+export async function adaptSelectValue(
+  locator: PlaywrightLocator,
+  value: string | null,
+): Promise<AdaptedSelect | null> {
+  const options = await locator
+    .evaluate((el) => {
+      if (el.tagName.toLowerCase() !== 'select') return null;
+      return Array.from((el as HTMLSelectElement).options)
+        .filter((option) => !option.disabled)
+        .map((option) => ({
+          value: option.value,
+          label: option.label.replace(/\s+/g, ' ').trim(),
+        }));
+    })
+    .catch(() => null);
+  if (!options || options.length === 0) return null;
+
+  const wanted = (value ?? '').trim().toLowerCase();
+  const match = wanted
+    ? (options.find((o) => o.value.toLowerCase() === wanted || o.label.toLowerCase() === wanted) ??
+      options.find(
+        (o) =>
+          (o.label && o.label.toLowerCase().includes(wanted)) ||
+          (o.label && wanted.includes(o.label.toLowerCase())),
+      ))
+    : undefined;
+
+  const chosen = match ?? options.find((o) => o.value !== '' && o.label !== '') ?? options[0]!;
+  const note = match
+    ? null
+    : `"${value ?? ''}" is not among this select's options; selected "${chosen.label || chosen.value}" (the first real option) instead. The options are: ${options
+        .map((o) => o.label || o.value)
+        .filter(Boolean)
+        .slice(0, 12)
+        .join(', ')}.`;
+  return { value: chosen.value, note };
+}
+
 /**
  * Performs one action. `assert` and `waitFor` only observe: they must never
  * mutate application state, or a verification step would become a side effect.

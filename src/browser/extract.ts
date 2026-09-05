@@ -346,8 +346,43 @@ async function extractPageOnce(page: Page, maxElements: number): Promise<PageSna
         }
 
         const title = el.getAttribute('title');
+        // A <select>'s textContent is its options concatenated — data, never a
+        // name. "Paris Philadelphia Boston…" as the accessible name buries the
+        // one field a flight-search plan needs behind noise (live-verified on
+        // blazedemo.com). An unlabelled select is honestly nameless.
+        if (tag === 'select') return clean(title, 120);
         const own = clean(el.textContent, 120);
         return own || clean(title, 120);
+      };
+
+      /**
+       * The heading that labels this element within (or just before) a container.
+       *
+       * The nearest heading *preceding the element in document order*, because
+       * that is the one a human reads as its label. The container's first
+       * heading is wrong whenever one container holds several labelled groups —
+       * blazedemo's flight form holds a departure select, then a destination
+       * heading, then a destination select, with the departure heading sitting
+       * just before the form. First-heading logic stamped both selects
+       * "destination" and the planner rightly concluded there was no departure
+       * field at all.
+       */
+      const nearestHeadingFor = (el: Element, container: Element): string | null => {
+        let best: Element | null = null;
+        for (const heading of Array.from(container.querySelectorAll('h1,h2,h3,h4,legend'))) {
+          // eslint-disable-next-line no-bitwise
+          if (heading.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) {
+            best = heading;
+          }
+        }
+        if (best) return clean(best.textContent, 80) || null;
+
+        // Nothing precedes the element inside the container; a heading directly
+        // before the container often labels it: `<h2>…</h2><form>…`.
+        const prev = container.previousElementSibling;
+        if (prev && /^H[1-6]$/.test(prev.tagName)) return clean(prev.textContent, 80) || null;
+
+        return clean(container.querySelector('h1,h2,h3,h4,legend')?.textContent, 80) || null;
       };
 
       /** Nearest meaningful container, used to disambiguate repeated elements. */
@@ -359,12 +394,10 @@ async function extractPageOnce(page: Page, maxElements: number): Promise<PageSna
 
           const tag = node.tagName.toLowerCase();
           if (['form', 'nav', 'header', 'footer', 'main', 'aside', 'dialog'].includes(tag)) {
-            const heading = node.querySelector('h1,h2,h3,h4,legend');
-            return clean(heading?.textContent, 80) || tag;
+            return nearestHeadingFor(el, node) ?? tag;
           }
           if (['section', 'article'].includes(tag)) {
-            const heading = node.querySelector('h1,h2,h3,h4');
-            const name = clean(heading?.textContent, 80);
+            const name = nearestHeadingFor(el, node);
             if (name) return name;
           }
           node = node.parentElement;
@@ -570,6 +603,9 @@ export function renderElementsForPrompt(snapshot: PageSnapshot): string {
     if (el.placeholder) parts.push(`placeholder="${el.placeholder}"`);
     if (el.labelText && el.labelText !== el.accessibleName) parts.push(`label="${el.labelText}"`);
     if (el.id) parts.push(`id="${el.id}"`);
+    // The form-field name is often the only place a field's purpose is written
+    // down at all (name="fromPort" on a select whose label is a sibling heading).
+    if (el.nameAttr) parts.push(`field="${el.nameAttr}"`);
     if (el.context) parts.push(`in="${el.context}"`);
     if (el.labelAnchor) parts.push(`labelledBy="${el.labelAnchor}"`);
     if (!el.enabled) parts.push('DISABLED');

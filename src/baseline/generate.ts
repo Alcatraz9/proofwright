@@ -2,7 +2,7 @@ import type { Browser, Page } from 'playwright';
 import { launchBrowser, newPage } from '../browser/session.js';
 import { resolveValueRef } from '../config.js';
 import { extractPage, type ExtractedElement, type PageSnapshot } from '../browser/extract.js';
-import { executeAction, isReadOnly } from '../browser/execute.js';
+import { adaptSelectValue, executeAction, isReadOnly } from '../browser/execute.js';
 import { toFingerprint } from '../browser/fingerprint.js';
 import { buildLocator, describeLocator, resolveLocators } from '../browser/locator.js';
 import { actsOnElement, type IntentPlan, type IntentStep } from '../intent/types.js';
@@ -152,6 +152,40 @@ export async function generateBaseline({
       const value = step.valueRef ? resolveValueRef(step.valueRef) : step.value;
       const urlBefore = page.url();
 
+      /**
+       * What actually executes and gets recorded may differ from what the plan
+       * said, in one narrow, disclosed way: a fill aimed at a `<select>` becomes
+       * a selection (Playwright's fill throws on selects, and prose plans cannot
+       * tell a dropdown from a text field), and a value the select does not
+       * offer becomes one it does. The baseline records the adapted action and
+       * literal option so the replayer and emitted spec do what was proven, not
+       * what was guessed.
+       */
+      let effectiveAction = step.action;
+      let effectiveValue = value;
+      let recordedValue = step.value;
+      let recordedValueRef = step.valueRef;
+
+      if ((step.action === 'fill' || step.action === 'select') && resolved) {
+        const adapted = await adaptSelectValue(buildLocator(page, resolved.primary), value);
+        if (adapted) {
+          effectiveAction = 'select';
+          effectiveValue = adapted.value;
+          recordedValue = adapted.value;
+          recordedValueRef = null;
+          if (adapted.note) {
+            onEvent?.({ type: 'warning', stepId: step.id, message: adapted.note });
+          } else if (step.action === 'fill') {
+            onEvent?.({
+              type: 'warning',
+              stepId: step.id,
+              message:
+                'The target is a dropdown, so the fill was recorded as a selection of the matching option.',
+            });
+          }
+        }
+      }
+
       // Captured before the step executes, while the element is still present and
       // in its pre-action state. This is the "before" half of the pair shown when a
       // heal later replaces this element.
@@ -166,15 +200,15 @@ export async function generateBaseline({
       try {
         await executeAction({
           page,
-          action: step.action,
+          action: effectiveAction,
           locator: resolved ? buildLocator(page, resolved.primary) : null,
-          value,
+          value: effectiveValue,
         });
       } catch (err) {
         throw new BaselineError(step, `Executing the step failed: ${messageOf(err)}`);
       }
 
-      if (!isReadOnly(step.action)) {
+      if (!isReadOnly(effectiveAction)) {
         const busy = await settled();
         if (busy.busy) {
           onEvent?.({
@@ -191,13 +225,13 @@ export async function generateBaseline({
       // What this action caused to appear, for the next steps' resolution. Kept
       // across read-only steps: two asserts in a row are both about the same
       // action's effects. Recomputed only when the page is acted on again.
-      if (!isReadOnly(step.action)) {
+      if (!isReadOnly(effectiveAction)) {
         const seen = new Set(snapshot.elements.map(contentKey));
         appearedKeys = new Set(after.elements.map(contentKey).filter((k) => !seen.has(k)));
       }
       const outcome = await deriveOutcome({
         page,
-        action: step.action,
+        action: effectiveAction,
         stepLocator: resolved?.primary ?? null,
         expectedValue: step.expectedValue,
         intended: step.expectedOutcome?.description ?? null,
@@ -220,9 +254,9 @@ export async function generateBaseline({
       steps.push({
         stepId: step.id,
         intent: step.intent,
-        action: step.action,
-        value: step.value,
-        valueRef: step.valueRef,
+        action: effectiveAction,
+        value: recordedValue,
+        valueRef: recordedValueRef,
         pageUrl: urlBefore,
         locator: resolved?.primary ?? null,
         fallbackLocators: resolved?.fallbacks ?? [],
