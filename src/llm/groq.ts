@@ -67,6 +67,29 @@ const RETRYABLE = new Set([429, 500, 502, 503, 504]);
 const SCHEMA_REJECTION = /json_validate_failed|does not match the expected schema/i;
 const MAX_SCHEMA_RETRIES = 1;
 
+/**
+ * Recovers a usable object from a schema-rejected generation, or `null`.
+ *
+ * Only the one malformation seen in the wild is repaired: the expected object
+ * wrapped in a single-element array. Anything else — truncation, a genuinely
+ * wrong shape, several objects — is not guessable and goes back to a resample.
+ */
+export function rescueFailedGeneration(body: string | undefined): unknown {
+  if (!body) return null;
+  try {
+    const parsed = JSON.parse(body) as { error?: { failed_generation?: string } };
+    const generation = parsed.error?.failed_generation;
+    if (!generation) return null;
+    const data = JSON.parse(generation) as unknown;
+    if (Array.isArray(data) && data.length === 1 && typeof data[0] === 'object' && data[0] !== null) {
+      return data[0];
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function supportsStrict(model: string): boolean {
   return STRICT_CAPABLE.has(model);
 }
@@ -122,7 +145,11 @@ export async function generateJsonWithGroq({
         const error = new Error(
           `Groq returned ${response.status}: ${body.slice(0, 400) || response.statusText}`,
         );
-        (error as Error & { status?: number; retryAfterMs?: number }).status = response.status;
+        (error as Error & { status?: number; retryAfterMs?: number; body?: string }).status =
+          response.status;
+        // The full body, because a schema rejection carries `failed_generation` —
+        // the model's actual output — and the truncated message loses it.
+        (error as Error & { body?: string }).body = body;
         /**
          * Groq says how long to wait, and on a tokens-per-minute limit that is the
          * only number worth acting on. The window is a minute; exponential backoff
@@ -168,8 +195,29 @@ export async function generateJsonWithGroq({
       const status = typed.status;
 
       if (status === 400 && SCHEMA_REJECTION.test(typed.message)) {
+        /**
+         * Before resampling, read what the model actually produced. Groq's 400
+         * carries `failed_generation`, and the commonest rejection observed live
+         * is the right object wrapped in a one-element array — `[{plan…}]` where
+         * `{plan…}` was asked for. That is an envelope mistake, not a content
+         * one, and unwrapping it recovers the sample that was already paid for.
+         * The caller's Zod parse remains the real gate: a rescue that does not
+         * satisfy it fails exactly as it would have.
+         */
+        const rescued = rescueFailedGeneration((typed as Error & { body?: string }).body);
+        if (rescued !== null) {
+          return { data: rescued, raw: JSON.stringify(rescued), model, attempts: attempt };
+        }
+
         if (schemaRetries >= MAX_SCHEMA_RETRIES) throw err;
         schemaRetries += 1;
+        /**
+         * Heated on purpose. At near-zero temperature under constrained decoding
+         * the second sample is close to a replay of the first — the OrangeHRM
+         * plan failed twice with the identical array wrapper. A resample only
+         * helps if it can differ.
+         */
+        temperature = Math.max(temperature, 0.7);
         continue; // resample immediately; there is nothing to wait for
       }
 
