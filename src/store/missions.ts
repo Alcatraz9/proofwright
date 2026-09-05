@@ -109,6 +109,38 @@ export function saveSiteMap(missionId: string, siteMap: SiteMap): void {
 }
 
 /**
+ * The most recent map an earlier mission crawled for this target, so a repeat
+ * investigation of the same URL does not pay for the same exploration twice.
+ *
+ * Matched on the target URL modulo a trailing slash — the crawler normalises
+ * the same way, so two spellings of one entry point share a cache line. The
+ * caller decides whether the map is still trustworthy (age, auth state); this
+ * only reports what exists and when it was taken.
+ */
+export function latestSiteMapForUrl(
+  targetUrl: string,
+  excludeMissionId?: string,
+): { siteMap: SiteMap; missionId: string; crawledAt: string } | null {
+  const bare = targetUrl.replace(/\/+$/, '');
+  const row = queryOne<Row>(
+    `SELECT * FROM missions
+     WHERE site_map_json IS NOT NULL
+       AND target_url IN (?, ?)
+       AND mission_id != ?
+     ORDER BY created_at DESC LIMIT 1`,
+    bare,
+    `${bare}/`,
+    excludeMissionId ?? '',
+  );
+  if (!row) return null;
+  return {
+    siteMap: JSON.parse(row.site_map_json as string) as SiteMap,
+    missionId: row.mission_id,
+    crawledAt: row.updated_at,
+  };
+}
+
+/**
  * Append one coverage reading.
  *
  * Same read-modify-write as the decision log and for the same reason: a mission

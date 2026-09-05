@@ -29,6 +29,7 @@ import {
   attachPlan,
   attachRun,
   finishMission,
+  latestSiteMapForUrl,
   loadMission,
   saveSiteMap,
   setMissionStage,
@@ -85,7 +86,14 @@ const STAGE_TIMEOUT_MS = Number(process.env.STAGE_TIMEOUT_MS ?? 10 * 60 * 1000);
  * MAX_REPLAN_ROUNDS on a paid tier, where more rounds cost minutes rather than the
  * whole demo window.
  */
-const MAX_REPLAN_ROUNDS = Number(process.env.MAX_REPLAN_ROUNDS ?? 1);
+const MAX_REPLAN_ROUNDS = Number(process.env.MAX_REPLAN_ROUNDS ?? 0);
+
+/**
+ * How long a crawled site map stays reusable for repeat missions against the
+ * same URL. Long enough to cover a session of iterating on one application,
+ * short enough that a deploy under the map gets noticed the next day.
+ */
+const EXPLORE_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 /**
  * How much of a requirements document reaches the planner.
@@ -141,28 +149,63 @@ export async function runMission({ missionId, signal }: RunMissionParams): Promi
      * worth testing about what was found.
      */
     const exploreJobId = `mission-${missionId}-explore`;
-    createJob({ jobId: exploreJobId, kind: 'explore', planId: missionId });
 
-    await runQueuedStage(exploreJobId, 'job', async (stageSignal) => {
-      const browser = await launchBrowser({ headed: false });
-      try {
-        const page = await newPage(browser);
-        siteMap = await crawl(page, { entryUrl: mission.targetUrl, signal: stageSignal });
-      } finally {
-        await browser.close().catch(() => {});
+    /**
+     * A repeat investigation of a URL explored recently reuses that map instead
+     * of crawling again. The map is pure data — page inventories, form
+     * classifications, auth findings — and plans built on it are selector-free,
+     * so nothing in it depends on the browser session that produced it.
+     * Re-crawling the same application buys nothing but time.
+     *
+     * Reuse is refused when it would mislead: a stale map (the application may
+     * have changed under it) or a mismatched auth state. Credentials supplied
+     * now demand a map crawled from behind the wall; a map crawled signed-in is
+     * not reused for a mission that cannot sign in, or its plans would target
+     * pages the recording can never reach.
+     */
+    const credsForCache = testCredentials();
+    const wantAuth = Boolean(credsForCache.identity && credsForCache.secret);
+    let reusedFrom: { missionId: string; ageMinutes: number } | null = null;
+
+    if (process.env.EDGEFORGE_EXPLORE_CACHE !== 'off') {
+      const cached = latestSiteMapForUrl(mission.targetUrl, missionId);
+      if (cached) {
+        const ageMs = Date.now() - Date.parse(cached.crawledAt);
+        const fresh = ageMs >= 0 && ageMs <= EXPLORE_CACHE_MAX_AGE_MS;
+        const authCompatible = !cached.siteMap.auth.wallFound
+          ? true
+          : cached.siteMap.auth.authenticated === wantAuth;
+        if (fresh && authCompatible) {
+          siteMap = cached.siteMap;
+          reusedFrom = { missionId: cached.missionId, ageMinutes: Math.round(ageMs / 60_000) };
+        }
       }
-    })
-      .then(() => finishJob(exploreJobId, 'done', null))
-      .catch((error: unknown) => {
-        finishJob(exploreJobId, 'error', message(error));
-        decide(
-          'explore',
-          'Could not explore the application',
-          `${message(error)} The mission continues on the stated intent alone, which is a narrower basis than a crawl.`,
-          'failed',
-          exploreStarted,
-        );
-      });
+    }
+
+    if (!reusedFrom) {
+      createJob({ jobId: exploreJobId, kind: 'explore', planId: missionId });
+
+      await runQueuedStage(exploreJobId, 'job', async (stageSignal) => {
+        const browser = await launchBrowser({ headed: false });
+        try {
+          const page = await newPage(browser);
+          siteMap = await crawl(page, { entryUrl: mission.targetUrl, signal: stageSignal });
+        } finally {
+          await browser.close().catch(() => {});
+        }
+      })
+        .then(() => finishJob(exploreJobId, 'done', null))
+        .catch((error: unknown) => {
+          finishJob(exploreJobId, 'error', message(error));
+          decide(
+            'explore',
+            'Could not explore the application',
+            `${message(error)} The mission continues on the stated intent alone, which is a narrower basis than a crawl.`,
+            'failed',
+            exploreStarted,
+          );
+        });
+    }
 
     if (siteMap) {
       const map: SiteMap = siteMap;
@@ -179,8 +222,14 @@ export async function runMission({ missionId, signal }: RunMissionParams): Promi
       );
       decide(
         'explore',
-        `Mapped ${map.pages.length} page(s), ${formCount(map)} form(s), ${negatives} negative-path opportunit(y/ies)`,
-        `${map.auth.note}${
+        reusedFrom
+          ? `Reused the site map from ${reusedFrom.missionId}: ${map.pages.length} page(s), ${formCount(map)} form(s)`
+          : `Mapped ${map.pages.length} page(s), ${formCount(map)} form(s), ${negatives} negative-path opportunit(y/ies)`,
+        `${
+          reusedFrom
+            ? `The same URL was explored ${reusedFrom.ageMinutes} minute(s) ago and the map is pure data, so it was reused rather than crawled again. Set EDGEFORGE_EXPLORE_CACHE=off to force a fresh crawl. `
+            : ''
+        }${map.auth.note}${
           map.unvisited.length ? ` ${map.unvisited.length} link(s) were left unvisited.` : ''
         }${
           map.pages.some((page) => page.destructiveActions.length)
@@ -207,8 +256,10 @@ export async function runMission({ missionId, signal }: RunMissionParams): Promi
         const behind = map.pages.filter((page) => page.behindAuth).length;
         decide(
           'explore',
-          'Credentials verified against the live application',
-          `The crawl signed in with the supplied credentials and reached ${behind} page(s) that need that session. This is observed, not assumed: the sign-in form accepted them and the application granted access. Plans can rely on this login for authenticated flows, and a wrong-password test now has a working credential to contrast against.`,
+          reusedFrom
+            ? 'Credentials were verified during the reused exploration'
+            : 'Credentials verified against the live application',
+          `The ${reusedFrom ? 'earlier' : ''} crawl signed in with the supplied credentials and reached ${behind} page(s) that need that session. This is observed, not assumed: the sign-in form accepted them and the application granted access. Plans can rely on this login for authenticated flows, and a wrong-password test now has a working credential to contrast against.`,
           'ok',
         );
       } else if (map.auth.wallFound && !map.auth.authenticated && credsAvailable) {
@@ -301,7 +352,7 @@ export async function runMission({ missionId, signal }: RunMissionParams): Promi
     } else if (observed) {
       instruction = [
         stated ??
-          'Exercise the primary journey this application exists for, using only what was found below: reach its main task, complete it with valid input, and confirm the application acknowledges the result.',
+          'Exercise the primary journey this application exists for, using only what was found below: reach its main task, complete it with valid input, and confirm the application acknowledges the result. Keep the plan simple — the shortest sequence that proves the journey works end to end. Do not add edge cases, alternative flows, or exhaustive checks; a clean pass on the happy path is the goal.',
         observed,
         credentialNote,
       ]
