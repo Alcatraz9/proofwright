@@ -69,23 +69,69 @@ export const GEMINI_MODEL = process.env.GEMINI_MODEL ?? 'gemini-2.5-flash';
 export const GROQ_MODEL = process.env.GROQ_MODEL ?? 'openai/gpt-oss-20b';
 
 /**
+ * Sarvam's default. `sarvam-105b` is the 128K-context model; the 32K
+ * `sarvam-105b-conversations` is tuned for dialogue and is the wrong shape for a
+ * single-shot prompt carrying a requirements document and a site map.
+ *
+ * Any Sarvam chat model constrains structured output, so unlike `GROQ_MODEL` this
+ * one can be changed without silently downgrading the planner's guarantee that it
+ * cannot emit an unknown action.
+ */
+export const SARVAM_MODEL = process.env.SARVAM_MODEL ?? 'sarvam-105b';
+
+/**
+ * How much of the completion budget the model may spend thinking before it writes
+ * any JSON.
+ *
+ * Low by default. Every call in this codebase is extraction against a schema that
+ * already encodes the shape of the answer, and reasoning tokens are drawn from the
+ * same budget as the output — a plan that reasons at length truncates rather than
+ * improves. Raise it to `medium` or `high` if plan quality on a long PRD warrants
+ * paying for it.
+ */
+export const SARVAM_REASONING_EFFORT: 'low' | 'medium' | 'high' = (() => {
+  const value = process.env.SARVAM_REASONING_EFFORT?.trim().toLowerCase();
+  return value === 'medium' || value === 'high' ? value : 'low';
+})();
+
+/**
  * Which provider answers.
  *
+ * Sarvam by default: it is the only one of the three whose free ceilings are
+ * per-minute rather than per-day, and whose context window fits a requirements
+ * document alongside a site map. Gemini allows twenty requests a day against a
+ * mission that spends ten to fifteen, and Groq refuses a request over 8,000
+ * tokens with a 413 that no retry helps.
+ *
  * Inferred from whichever key is present when unset, because the failure this
- * prevents is a correct GROQ_API_KEY sitting beside a provider still pointing at
- * Gemini — which presents as a quota error naming a model nobody chose.
+ * prevents is a correct key sitting beside a provider still pointing somewhere
+ * else — which presents as a quota error naming a model nobody chose.
  */
-export const LLM_PROVIDER: 'gemini' | 'groq' = (() => {
+export const LLM_PROVIDER: 'gemini' | 'groq' | 'sarvam' = (() => {
   const explicit = process.env.LLM_PROVIDER?.trim().toLowerCase();
-  if (explicit === 'groq' || explicit === 'gemini') return explicit;
+  if (explicit === 'groq' || explicit === 'gemini' || explicit === 'sarvam') return explicit;
+  if (process.env.SARVAM_API_KEY) return 'sarvam';
   if (process.env.GROQ_API_KEY) return 'groq';
-  return 'gemini';
+  if (process.env.GEMINI_API_KEY) return 'gemini';
+  return 'sarvam';
 })();
+
+export function requireSarvamApiKey(): string {
+  const key = process.env.SARVAM_API_KEY;
+  if (!key) {
+    throw new Error(
+      'SARVAM_API_KEY is not set. Add it to .env, or set LLM_PROVIDER=groq or =gemini.',
+    );
+  }
+  return key;
+}
 
 export function requireGroqApiKey(): string {
   const key = process.env.GROQ_API_KEY;
   if (!key) {
-    throw new Error('GROQ_API_KEY is not set. Add it to .env, or set LLM_PROVIDER=gemini.');
+    throw new Error(
+      'GROQ_API_KEY is not set. Add it to .env, or set LLM_PROVIDER=sarvam or =gemini.',
+    );
   }
   return key;
 }
@@ -122,7 +168,10 @@ export const INTERNAL_ORIGIN = `http://127.0.0.1:${SERVER.port}`;
 export function requireApiKey(): string {
   const key = process.env.GEMINI_API_KEY;
   if (!key) {
-    throw new Error('GEMINI_API_KEY is not set. Copy env.example to .env and add your key.');
+    throw new Error(
+      'GEMINI_API_KEY is not set. Copy env.example to .env and add your key, or set\n' +
+        'LLM_PROVIDER=sarvam and SARVAM_API_KEY instead.',
+    );
   }
   return key;
 }

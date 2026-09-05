@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { GEMINI_MODEL, GROQ_MODEL, LLM_PROVIDER } from '../config.js';
+import { GEMINI_MODEL, GROQ_MODEL, LLM_PROVIDER, SARVAM_MODEL } from '../config.js';
 import { generateJson } from '../llm/generate.js';
-import { supportsStrict } from '../llm/groq.js';
+import { supportsStrict as groqSupportsStrict } from '../llm/groq.js';
 
 /**
  * One cheap structured call against the configured provider.
@@ -22,12 +22,18 @@ const probeSchema = z.object({
 });
 
 async function main(): Promise<void> {
-  const model = LLM_PROVIDER === 'groq' ? GROQ_MODEL : GEMINI_MODEL;
+  const model =
+    LLM_PROVIDER === 'groq'
+      ? GROQ_MODEL
+      : LLM_PROVIDER === 'gemini'
+        ? GEMINI_MODEL
+        : SARVAM_MODEL;
 
   console.log(`provider   ${LLM_PROVIDER}`);
   console.log(`model      ${model}`);
   if (LLM_PROVIDER === 'groq') {
-    const strict = supportsStrict(model);
+    // The only provider here where the guarantee depends on which model you picked.
+    const strict = groqSupportsStrict(model);
     console.log(
       `decoding   ${strict ? 'constrained (strict: true)' : 'BEST-EFFORT — schema not guaranteed'}`,
     );
@@ -37,8 +43,10 @@ async function main(): Promise<void> {
           '           qwen/qwen3.8-27b to get a guarantee rather than an attempt.',
       );
     }
-  } else {
+  } else if (LLM_PROVIDER === 'gemini') {
     console.log('decoding   constrained (responseSchema)');
+  } else {
+    console.log('decoding   constrained (strict: true)');
   }
 
   const startedAt = Date.now();

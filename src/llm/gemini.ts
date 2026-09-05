@@ -11,7 +11,7 @@ function getClient(): GoogleGenAI {
   return client;
 }
 
-// Shared with the Groq client, so a caller cannot tell which one answered.
+// Shared with the Sarvam and Groq clients, so a caller cannot tell which one answered.
 export type { GenerateJsonOptions, GenerateJsonResult } from './types.js';
 
 /**

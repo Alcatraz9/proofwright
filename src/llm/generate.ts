@@ -1,6 +1,7 @@
 import { LLM_PROVIDER } from '../config.js';
 import { generateJson as generateWithGemini } from './gemini.js';
 import { generateJsonWithGroq } from './groq.js';
+import { generateJsonWithSarvam } from './sarvam.js';
 import type { GenerateJsonOptions, GenerateJsonResult } from './types.js';
 
 export type { GenerateJsonOptions, GenerateJsonResult } from './types.js';
@@ -17,7 +18,12 @@ export type { GenerateJsonOptions, GenerateJsonResult } from './types.js';
  * the common failure here is a correct key and a provider left pointing elsewhere.
  */
 export async function generateJson(options: GenerateJsonOptions): Promise<GenerateJsonResult> {
-  return LLM_PROVIDER === 'groq'
-    ? generateJsonWithGroq(options)
-    : generateWithGemini(options);
+  switch (LLM_PROVIDER) {
+    case 'groq':
+      return generateJsonWithGroq(options);
+    case 'gemini':
+      return generateWithGemini(options);
+    default:
+      return generateJsonWithSarvam(options);
+  }
 }
