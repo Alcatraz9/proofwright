@@ -79,13 +79,14 @@ const DESTRUCTIVE_HINTS = [
 ];
 
 export async function crawl(page: Page, options: CrawlOptions): Promise<SiteMap> {
-  // Small on purpose: a mission needs enough map to plan a happy path against,
-  // not an exhaustive survey. Every mapped form becomes coverage denominator
-  // that planning and locator resolution then pay tokens for, and repeat
-  // missions against the same URL reuse the stored map rather than crawling
-  // again — so the budget only bounds the *first* look at an application.
-  const pageLimit = options.pageLimit ?? 3;
-  const depthLimit = options.depthLimit ?? 3;
+  // Eight and eight: enough pages for a real slice of an application, and with
+  // breadth-first order plus the diversity-ranked frontier the depth limit only
+  // bites on chain-shaped sites (list -> detail -> sub-detail). Repeat missions
+  // against the same URL reuse the stored map, so this budget only bounds the
+  // FIRST look — the token cost downstream is per mapped form, which the
+  // shape-dedup now keeps to one representative per template.
+  const pageLimit = options.pageLimit ?? 8;
+  const depthLimit = options.depthLimit ?? 8;
   const timeBudgetMs = options.timeBudgetMs ?? 90_000;
   const startedAt = Date.now();
 
