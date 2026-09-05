@@ -43,8 +43,14 @@ RULES
    Role matters: a "fill" step needs a textbox, a "click" step needs something clickable.
 
 4. Use the target's context and the elements' "in=" and "near=" fields to disambiguate
-   repeated elements. If several elements match equally well and nothing distinguishes
-   them, lower your confidence and say so.
+   repeated elements. Distinguish two situations that look alike:
+   - The step names a SPECIFIC element and several candidates could be it: lower your
+     confidence and say what is indistinguishable.
+   - The step targets a REPRESENTATIVE of a kind ("a book title", "any product link",
+     "the first item") and several interchangeable candidates all satisfy it equally:
+     choose the first in document order with HIGH confidence, and say the choice was
+     among interchangeable items. Picking any one of them is a correct answer, not
+     a guess.
 
 5. Prefer the element that does the step's job directly. For "proceed to checkout",
    a button named "Checkout" beats a nav link named "Cart" that would eventually get there.

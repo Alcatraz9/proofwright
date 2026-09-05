@@ -105,9 +105,15 @@ export async function crawl(page: Page, options: CrawlOptions): Promise<SiteMap>
   const sessionEndingSkipped = new Set<string>();
 
   const fromEnv = testCredentials();
-  const credentials = {
-    identity: options.credentials?.identity ?? fromEnv.identity,
-    secret: options.credentials?.secret ?? fromEnv.secret,
+  /**
+   * Object-level fallback, not per-field. A caller that passes a credentials
+   * object owns the decision entirely — including the decision that there are
+   * none. Per-field `??` quietly resurrected the server's own `.env` fixture
+   * login for external targets whenever the mission supplied nothing.
+   */
+  const credentials = options.credentials ?? {
+    identity: fromEnv.identity,
+    secret: fromEnv.secret,
   };
 
   while (queue.length) {

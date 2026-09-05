@@ -152,6 +152,16 @@ export function preflightValues(plan: IntentPlan): ValuePreflight {
 const appliedRefs = new Set<string>();
 
 /**
+ * Which refs the CURRENT mission actually supplied — as opposed to values that
+ * were already in the server's environment. The distinction decides where
+ * credentials may be used: `.env` fixture credentials belong to the fixture
+ * app only, while mission-supplied ones belong to the mission's target.
+ */
+export function missionSuppliedRefs(): ReadonlySet<string> {
+  return appliedRefs;
+}
+
+/**
  * Caller-supplied values, for the case the challenge actually describes: a target
  * URL arrives with credentials rather than with a pre-configured environment.
  *

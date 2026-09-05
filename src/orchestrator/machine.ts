@@ -38,7 +38,7 @@ import { approvePlan, loadPlan, savePlan } from '../store/plans.js';
 import { createRun, loadRun } from '../store/runs.js';
 import { getActiveVersion } from '../fixtures/app.js';
 import { runQueuedStage } from './supervisor.js';
-import { availableCredentialRefs, preflightValues } from './values.js';
+import { availableCredentialRefs, missionSuppliedRefs, preflightValues } from './values.js';
 import { notBuiltYet, type CoverageRound, type Decision, type Stage } from './types.js';
 
 /**
@@ -94,6 +94,43 @@ const MAX_REPLAN_ROUNDS = Number(process.env.MAX_REPLAN_ROUNDS ?? 0);
  * short enough that a deploy under the map gets noticed the next day.
  */
 const EXPLORE_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '0.0.0.0', '[::1]']);
+
+/**
+ * The credentials a mission may use against ITS target — scope, not just names.
+ *
+ * Two credential sources exist and they belong to different applications. The
+ * server's `.env` holds the FIXTURE's login (demo@example.com for the local
+ * demo app); a mission's `credentials` payload holds the TARGET's. Reading
+ * them through one `testCredentials()` call meant every external mission
+ * inherited the fixture account: demoqa got a sign-in attempt with
+ * demo@example.com, the crawl reported on it, and "no credentials supplied"
+ * was never true no matter what the caller sent. External targets now see
+ * only what the mission itself supplied; the fixture keeps its own login.
+ */
+function credentialsForTarget(targetUrl: string): { identity?: string; secret?: string } {
+  try {
+    if (LOOPBACK_HOSTS.has(new URL(targetUrl).hostname)) return testCredentials();
+  } catch {
+    /* unparseable target: treat as external */
+  }
+  const supplied = [...missionSuppliedRefs()];
+  const identityRef = supplied.find((ref) => /(EMAIL|USERNAME|USER_NAME|USER|LOGIN|IDENTITY)/.test(ref));
+  const secretRef = supplied.find((ref) => /(PASSWORD|PASSWD|SECRET|PIN)$/.test(ref));
+  return {
+    identity: identityRef ? process.env[identityRef] : undefined,
+    secret: secretRef ? process.env[secretRef] : undefined,
+  };
+}
+
+function isLoopbackTarget(targetUrl: string): boolean {
+  try {
+    return LOOPBACK_HOSTS.has(new URL(targetUrl).hostname);
+  } catch {
+    return false;
+  }
+}
 
 /**
  * How much of a requirements document reaches the planner.
@@ -163,7 +200,7 @@ export async function runMission({ missionId, signal }: RunMissionParams): Promi
      * not reused for a mission that cannot sign in, or its plans would target
      * pages the recording can never reach.
      */
-    const credsForCache = testCredentials();
+    const credsForCache = credentialsForTarget(mission.targetUrl);
     const wantAuth = Boolean(credsForCache.identity && credsForCache.secret);
     let reusedFrom: { missionId: string; ageMinutes: number } | null = null;
 
@@ -196,7 +233,11 @@ export async function runMission({ missionId, signal }: RunMissionParams): Promi
         const browser = await launchBrowser({ headed: false });
         try {
           const page = await newPage(browser);
-          siteMap = await crawl(page, { entryUrl: mission.targetUrl, signal: stageSignal });
+          siteMap = await crawl(page, {
+            entryUrl: mission.targetUrl,
+            signal: stageSignal,
+            credentials: credentialsForTarget(mission.targetUrl),
+          });
         } finally {
           await browser.close().catch(() => {});
         }
@@ -256,7 +297,7 @@ export async function runMission({ missionId, signal }: RunMissionParams): Promi
        * mission" to a caller who already had, which reads as the tool not
        * listening. Three outcomes, each stated as what was actually observed.
        */
-      const creds = testCredentials();
+      const creds = credentialsForTarget(mission.targetUrl);
       const credsAvailable = Boolean(creds.identity && creds.secret);
 
       if (map.auth.wallFound && map.auth.authenticated && credsAvailable) {
@@ -306,7 +347,12 @@ export async function runMission({ missionId, signal }: RunMissionParams): Promi
      * The credential names the planner may reference, rather than leaving it to
      * invent one. Names only — a value never reaches a prompt.
      */
-    const refs = availableCredentialRefs();
+    const targetCreds = credentialsForTarget(mission.targetUrl);
+    const refs = targetCreds.identity || targetCreds.secret
+      ? availableCredentialRefs().filter(
+          (ref) => missionSuppliedRefs().has(ref) || isLoopbackTarget(mission.targetUrl),
+        )
+      : [];
     /**
      * Verified beats available. A planner told only that credentials exist plans
      * a sign-in it hopes will work; one told the crawl already signed in with
