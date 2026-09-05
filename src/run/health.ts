@@ -80,6 +80,17 @@ export class HealthMonitor {
       const failure = request.failure()?.errorText ?? 'failed';
       // Cancelled requests are routine during navigation, not a fault signal.
       if (failure.includes('ERR_ABORTED')) return;
+      /**
+       * Same-origin only, for the same reason serverErrors is: a third-party
+       * subresource failing is not this application breaking. Real sites ship
+       * failing CDN scripts, blocked trackers and mixed-content jQuery
+       * (blazedemo.com, live: the flight search completed and its assertions
+       * held while http://ajax.googleapis.com was blocked as mixed content —
+       * and the run was failed for it). If a third-party failure genuinely
+       * breaks the app's behaviour, the step's own assertions catch it and
+       * attribute it to the application, which is the honest chain of evidence.
+       */
+      if (!this.isSameOrigin(request.url())) return;
       this.failedRequests.push(`${request.method()} ${request.url()} — ${failure}`);
     });
 

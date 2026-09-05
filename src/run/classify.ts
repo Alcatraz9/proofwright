@@ -31,7 +31,10 @@ export function classifyConfigurationError(health: AppHealth, message: string): 
  * session is not what the test assumed — neither is a stale locator, and both
  * would otherwise present as missing elements and invite a heal.
  */
-export function classifyAppHealth(health: AppHealth): StepFailure | null {
+export function classifyAppHealth(
+  health: AppHealth,
+  { ignorePageErrors = false }: { ignorePageErrors?: boolean } = {},
+): StepFailure | null {
   if (health.crashed) {
     return failure('PAGE_CRASH', 'The browser page crashed.', health);
   }
@@ -51,7 +54,11 @@ export function classifyAppHealth(health: AppHealth): StepFailure | null {
   // Last, because it is the least specific signal — but still a signal. A
   // framework that renders server errors on the client leaves no status code
   // behind, so this is sometimes the only evidence that anything went wrong.
-  if (health.pageErrors.length > 0) {
+  // Callers whose step just proved its behaviour with a held assertion may
+  // exclude it: real applications log console errors while functioning
+  // (blazedemo's blocked third-party jQuery, live), and direct evidence
+  // outranks circumstantial.
+  if (!ignorePageErrors && health.pageErrors.length > 0) {
     return failure(
       'PAGE_ERROR',
       `Uncaught error in the application: ${health.pageErrors[0]}`,

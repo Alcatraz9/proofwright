@@ -473,8 +473,16 @@ async function runStep(
 
   // The assertion held — but an assertion can hold on a broken page. A 500 error
   // page served at /checkout still satisfies urlContains "/checkout", so health
-  // is checked on success too, not only on failure.
-  const brokenAnyway = classifyAppHealth(monitor.snapshot());
+  // is checked on success too, not only on failure. One signal is excused here
+  // and only here: console errors. A step that just proved its behaviour with a
+  // held assertion is direct evidence the application worked; a console error is
+  // circumstantial, and real sites log them constantly while functioning. When
+  // the step has NO assertions, the console keeps its veto — it is the only
+  // witness left.
+  const hasAssertions = outcome.assertions.length > 0;
+  const brokenAnyway = classifyAppHealth(monitor.snapshot(), {
+    ignorePageErrors: hasAssertions,
+  });
   if (brokenAnyway) {
     return finish({
       status: 'failed',
