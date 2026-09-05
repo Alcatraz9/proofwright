@@ -6,7 +6,7 @@ import { Console } from './screens/Console.tsx';
 import { Missions } from './screens/Missions.tsx';
 import { History } from './screens/History.tsx';
 import { Plans } from './screens/Plans.tsx';
-import { STEP_STATE_STYLE } from './components/status.tsx';
+import { REGISTER_TEXT, STEP_STATE_STYLE } from './components/status.tsx';
 import { CHANNEL_STATES } from './components/StepChannel.tsx';
 import { focusRing } from './components/ui.tsx';
 import { IconClose, IconRetry } from './components/icons.tsx';
@@ -312,13 +312,7 @@ function Legend({
               {CHANNEL_STATES.map((state) => {
                 const style = STEP_STATE_STYLE[state];
                 const Mark = style.mark;
-                const register = {
-                  quiet: 'text-read-200',
-                  stated: 'text-read-100',
-                  attention: 'text-signal',
-                  fault: 'text-alarm-ink',
-                  dim: 'text-read-300',
-                }[style.register];
+                const register = REGISTER_TEXT[style.register];
                 return (
                   <div key={state} className="flex gap-3">
                     <span className={`mt-0.5 shrink-0 ${register}`}>

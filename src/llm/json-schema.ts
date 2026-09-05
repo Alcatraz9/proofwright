@@ -77,7 +77,9 @@ export function toToolInputSchema(schema: z.ZodType): JsonSchema {
 }
 
 /**
- * The same schema under the rules Groq's constrained decoding imposes.
+ * The same schema under the rules OpenAI-compatible constrained decoding imposes.
+ *
+ * Shared by the Sarvam and Groq clients, which agree on the dialect.
  *
  * Nearly the inverse of `toGeminiSchema`, which is why it is a separate function
  * rather than a flag: Gemini's dialect rejects `additionalProperties` and this one
@@ -92,7 +94,7 @@ export function toToolInputSchema(schema: z.ZodType): JsonSchema {
  * required and still say "there is nothing here", which is what the schema meant
  * in the first place.
  *
- * `reused: 'inline'` keeps `$ref` out of it. Groq supports `$defs`, but inlining
+ * `reused: 'inline'` keeps `$ref` out of it. Both providers support `$defs`, but inlining
  * removes a whole class of cross-provider difference for a schema this small.
  *
  * Constraint keywords are removed, and that is a design decision rather than a

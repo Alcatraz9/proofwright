@@ -1,13 +1,13 @@
 import type { z } from 'zod';
 
 /**
- * The contract both providers implement.
+ * The contract every provider implements.
  *
  * Extracted so a call site cannot tell which model answered it. The three callers
  * — plan generation, locator resolution, heal proposal — each want the same thing:
  * JSON in a known shape, or a thrown error. Nothing above this line should know
- * whether that came from Gemini or Groq, and nothing below it should know what the
- * JSON is for.
+ * whether that came from Sarvam, Gemini or Groq, and nothing below it should know
+ * what the JSON is for.
  */
 export interface GenerateJsonOptions {
   prompt: string;
@@ -27,4 +27,4 @@ export interface GenerateJsonResult {
   attempts: number;
 }
 
-export type LlmProvider = 'gemini' | 'groq';
+export type LlmProvider = 'gemini' | 'groq' | 'sarvam';

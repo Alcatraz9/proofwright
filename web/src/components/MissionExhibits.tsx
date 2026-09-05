@@ -11,17 +11,22 @@ import { api } from '../api/client.ts';
 import { ms, when } from '../lib/format.ts';
 import { Code, Empty, Panel, SectionTitle, focusRing } from './ui.tsx';
 import { IconDisclose } from './icons.tsx';
+import { REGISTER_TEXT } from './status.tsx';
 import {
   CoverageTrace,
   DECISION_OUTCOME,
   GAP_KIND,
-  OutcomeChip,
   SCENARIO_KIND,
   SCENARIO_VERDICT,
+  STAGES,
   STAGE_LABEL,
   STAGE_NOTE,
+  STAGE_STATE,
   ScenarioVerdictChip,
+  StageStateMark,
+  readStage,
 } from './mission.tsx';
+import type { StageReading } from './mission.tsx';
 
 /**
  * What hangs beneath the strip.
@@ -30,14 +35,6 @@ import {
  * arrives at any single one of them can tell what it is claiming and on what basis.
  * None of them derives a value the endpoints do not carry.
  */
-
-const REGISTER_TEXT = {
-  quiet: 'text-read-200',
-  stated: 'text-read-100',
-  attention: 'text-signal',
-  fault: 'text-alarm-ink',
-  dim: 'text-read-300',
-} as const;
 
 // ---------------------------------------------------------------------------
 // Decisions
@@ -54,7 +51,7 @@ const REGISTER_TEXT = {
  * comparable figures; they are an ordered account in prose, and the reason is the
  * longest field on every row.
  */
-export function DecisionExhibit({ mission }: { mission: Mission }) {
+export function DecisionExhibit({ mission, live }: { mission: Mission; live: boolean }) {
   const [outcomeFilter, setOutcomeFilter] = useState<string | null>(null);
 
   const counts = new Map<string, number>();
@@ -65,6 +62,8 @@ export function DecisionExhibit({ mission }: { mission: Mission }) {
   const shown = outcomeFilter
     ? mission.decisions.filter((decision) => decision.outcome === outcomeFilter)
     : mission.decisions;
+
+  const readings = STAGES.map((stage) => readStage(stage, mission.decisions, mission.stage, live));
 
   if (!mission.decisions.length) {
     return (
@@ -123,27 +122,16 @@ export function DecisionExhibit({ mission }: { mission: Mission }) {
         })}
       </div>
 
-      <ol className="mt-1">
-        {shown.map((decision, index) => (
-          <li
-            key={`${decision.stage}-${decision.at}-${index}`}
-            className="border-t border-rule py-3.5"
-          >
-            <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1.5">
-              <span className="label-cut label-cut-bright w-[8.5rem] shrink-0">
-                {STAGE_LABEL[decision.stage] ?? decision.stage}
-              </span>
-              <OutcomeChip outcome={decision.outcome} />
-              {decision.durationMs !== null ? (
-                <span className="mono-figures text-[12px] text-read-300">{ms(decision.durationMs)}</span>
-              ) : null}
-              <span className="mono-figures ml-auto text-[12px] text-read-300">{when(decision.at)}</span>
-            </div>
-            <p className="readout mt-1.5 text-[15px] leading-snug text-read-100">{decision.action}</p>
-            <p className="measure mt-1.5 text-[13px] leading-relaxed text-read-300">{decision.reason}</p>
-          </li>
+      <div className="mt-3 border-t border-rule">
+        {readings.map((reading) => (
+          <StageGroup
+            key={reading.stage}
+            reading={reading}
+            decisions={shown.filter((decision) => decision.stage === reading.stage)}
+            filtered={outcomeFilter !== null}
+          />
         ))}
-      </ol>
+      </div>
 
       {!shown.length ? (
         <p className="border-t border-rule py-6 text-[13px] text-read-300">
@@ -151,6 +139,170 @@ export function DecisionExhibit({ mission }: { mission: Mission }) {
         </p>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * One stage, and the decisions filed under it.
+ *
+ * Two levels of disclosure, which is one more than the flat list this replaced
+ * and is the whole reason for the change: a stage is now scannable as a unit —
+ * its state and what it cost — before any of its reasoning is on screen.
+ *
+ * What opens by default is the argument for the structure. A live stage opens
+ * because it is the thing being watched. A stage that failed or went round again
+ * opens because it is the reason anyone is reading. A stage that simply worked
+ * stays shut, since a reader who wants it can say so and one who does not should
+ * not have to scroll past it. That is also why the filter forces every matching
+ * stage open: having asked to see the escalations, being handed six closed
+ * headers would be a worse answer than the flat list gave.
+ *
+ * State and a conditional rather than <details>, matching ScenarioSteps below:
+ * Chromium keeps stale bounding boxes for closed details content, which reads as
+ * phantom occluded text to any geometry audit.
+ */
+function StageGroup({
+  reading,
+  decisions,
+  filtered,
+}: {
+  reading: StageReading;
+  decisions: Mission['decisions'];
+  filtered: boolean;
+}) {
+  const notable = reading.state === 'failed' || reading.state === 'attention';
+  const [open, setOpen] = useState(reading.state === 'running' || notable);
+
+  // A stage can become notable while the panel is on screen — the poll brings in
+  // a failure two minutes into a run — and a group that stayed shut through that
+  // would be hiding the one thing worth seeing.
+  const [wasNotable, setWasNotable] = useState(notable);
+  if (notable && !wasNotable) {
+    setWasNotable(true);
+    setOpen(true);
+  }
+
+  const expanded = filtered ? decisions.length > 0 : open;
+  const empty = reading.state === 'pending';
+
+  return (
+    <section className="border-b border-rule last:border-b-0">
+      <h3>
+        <button
+          type="button"
+          disabled={empty || (filtered && decisions.length === 0)}
+          onClick={() => setOpen((value) => !value)}
+          aria-expanded={expanded}
+          className={`flex w-full items-center gap-3 px-1 py-2.5 text-left transition-colors disabled:cursor-default ${focusRing} ${
+            empty ? 'opacity-55' : 'hover:bg-plate-100'
+          }`}
+        >
+          <IconDisclose
+            open={expanded}
+            size={12}
+            className={`shrink-0 text-read-300 ${empty || (filtered && !decisions.length) ? 'invisible' : ''}`}
+          />
+          <StageStateMark state={reading.state} />
+          <span className="readout text-[15px] leading-snug text-read-100">
+            {STAGE_LABEL[reading.stage]}
+          </span>
+          <span className="label-cut ml-auto hidden shrink-0 sm:inline">
+            {filtered
+              ? `${decisions.length} shown`
+              : reading.count
+                ? `${reading.count} decision${reading.count === 1 ? '' : 's'}`
+                : STAGE_STATE[reading.state].label}
+          </span>
+          {reading.durationMs !== null ? (
+            <span className="mono-figures w-16 shrink-0 text-right text-[12px] text-read-300">
+              {ms(reading.durationMs)}
+            </span>
+          ) : (
+            <span className="w-16 shrink-0" />
+          )}
+        </button>
+      </h3>
+
+      {expanded && decisions.length ? (
+        <ol className="mb-1 ml-[1.35rem] border-l border-rule">
+          {decisions.map((decision, index) => (
+            <DecisionRow key={`${decision.at}-${index}`} decision={decision} />
+          ))}
+        </ol>
+      ) : null}
+
+      {expanded && !decisions.length && !empty ? (
+        <p className="mb-2 ml-[1.35rem] border-l border-rule py-2 pl-3 text-[13px] text-read-300">
+          The stage ran but filed nothing under this filter.
+        </p>
+      ) : null}
+
+      {/* Stated rather than left blank: an empty stage and an unreached one look
+          identical on a strip, and only one of them means anything is wrong. */}
+      {empty ? (
+        <p className="mb-2 ml-[1.35rem] pl-3 text-[12px] leading-relaxed text-read-300">
+          {STAGE_NOTE[reading.stage]}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+/**
+ * One decision, disclosed.
+ *
+ * The action is the header and the reason is the body, which inverts the flat
+ * list's emphasis on purpose: scanning six actions to find the one worth reading
+ * is the common case, and reading all six reasons is not. The outcome and the
+ * timing stay on the closed row, because those are what a reader scans *for*.
+ */
+function DecisionRow({ decision }: { decision: Mission['decisions'][number] }) {
+  const outcome = DECISION_OUTCOME[decision.outcome] ?? DECISION_OUTCOME.failed;
+  const [open, setOpen] = useState(false);
+  const Mark = outcome.mark;
+
+  return (
+    <li className="border-b border-rule/60 last:border-b-0">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-expanded={open}
+        className={`flex w-full items-baseline gap-3 py-2 pl-3 pr-1 text-left transition-colors hover:bg-plate-100 ${focusRing}`}
+      >
+        <span className={`shrink-0 self-center ${REGISTER_TEXT[outcome.register]}`}>
+          <Mark size={13} />
+        </span>
+        <span className="min-w-0 flex-1 text-[14px] leading-snug text-read-100">
+          {decision.action}
+        </span>
+        {/* Written out for everything except the quiet case. The house rule is that
+            no two states are told apart by colour alone, and a mark plus a word
+            satisfies it — but spelling out "Ok" on eleven of fifteen rows rebuilds
+            the wall of green pills this surface exists to avoid. The rows that are
+            not routine say so in words; the routine ones are carried by the mark. */}
+        {decision.outcome === 'ok' ? (
+          <span className="relative sr-only">{outcome.label}</span>
+        ) : (
+          <span className={`label-cut shrink-0 ${REGISTER_TEXT[outcome.register]}`}>
+            {outcome.label}
+          </span>
+        )}
+        {decision.durationMs !== null ? (
+          <span className="mono-figures shrink-0 text-[12px] text-read-300">
+            {ms(decision.durationMs)}
+          </span>
+        ) : null}
+        <span className="mono-figures hidden w-[7rem] shrink-0 whitespace-nowrap text-right text-[12px] text-read-300 sm:inline-block">
+          {when(decision.at)}
+        </span>
+      </button>
+
+      {open ? (
+        <p className="measure pb-3 pl-3 pr-4 text-[13px] leading-relaxed text-read-300">
+          {decision.reason}
+        </p>
+      ) : null}
+    </li>
   );
 }
 

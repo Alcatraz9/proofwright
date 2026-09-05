@@ -28,14 +28,25 @@ import {
  * need no attention in the same visual register as the one that does.
  */
 
-export type Register = 'quiet' | 'stated' | 'attention' | 'fault' | 'dim';
+/**
+ * `pass` is the newest and the most restricted: it belongs to the run-shaped
+ * views, where a reader scans a column of completed work for the entry that is
+ * not. See the palette note in index.css for why it is not for step marks or any
+ * list where most rows pass.
+ */
+export type Register = 'quiet' | 'stated' | 'attention' | 'fault' | 'dim' | 'pass';
 
-const REGISTER_TEXT: Record<Register, string> = {
+/**
+ * The one copy. This lived inline in four other files, which is how a register
+ * added here compiled everywhere and rendered nowhere.
+ */
+export const REGISTER_TEXT: Record<Register, string> = {
   quiet: 'text-read-200',
   stated: 'text-read-100',
   attention: 'text-signal',
   fault: 'text-alarm-ink',
   dim: 'text-read-300',
+  pass: 'text-pass',
 };
 
 const REGISTER_TRACE: Record<Register, string> = {
@@ -44,6 +55,9 @@ const REGISTER_TRACE: Record<Register, string> = {
   attention: 'var(--color-signal)',
   fault: 'var(--color-alarm)',
   dim: 'var(--color-rule)',
+  // Present for completeness of the union. No step trace uses it: the trace
+  // channel is per-step, and a green line per passing step is the wall again.
+  pass: 'var(--color-pass)',
 };
 
 export interface StepStateStyle {

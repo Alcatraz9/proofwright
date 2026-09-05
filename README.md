@@ -110,7 +110,7 @@ change it was, an accessibility score, and a passive security read.
 ```bash
 git clone <this repo> && cd edgeforge
 
-cp env.example .env          # add GROQ_API_KEY — see Configuration below
+cp env.example .env          # add SARVAM_API_KEY — see Configuration below
 npm install
 npm run web:install
 npm run web:build
@@ -229,24 +229,39 @@ and what gets escalated. That contrast is the demo.
 
 Everything lives in `.env` — see `env.example`, which documents each value.
 
-**Model provider.** Groq is the default and is strongly recommended: its free tier
-allows roughly 30 requests a minute, where Gemini's allows **20 per day** and a single
-mission spends 10–15 of them.
+**Model provider.** Sarvam is the default. It is the only one of the three whose
+ceilings are per *minute* rather than per day — 40 requests a minute on the starter
+tier — and its 128K context is the only one that fits a requirements document
+alongside a site map.
 
 ```bash
-LLM_PROVIDER=groq
-GROQ_API_KEY=gsk_...
-GROQ_MODEL=openai/gpt-oss-20b
+LLM_PROVIDER=sarvam
+SARVAM_API_KEY=sk_...
+SARVAM_MODEL=sarvam-105b
 ```
 
-`GROQ_MODEL` must stay on a model whose structured output is *constrained* rather than
-best-effort, or the planner loses the guarantee that it cannot emit an invalid action:
-`openai/gpt-oss-20b`, `openai/gpt-oss-120b`, or `qwen/qwen3.8-27b`. `npm run llm:check`
-tells you which mode you are in.
+Either Sarvam chat model constrains structured output, so `SARVAM_MODEL` can be changed
+without losing the planner's guarantee that it cannot emit an invalid action:
+`sarvam-105b` (128K) or `sarvam-105b-conversations` (32K, dialogue-tuned).
+`SARVAM_REASONING_EFFORT` (`low` by default) bounds how much of the completion budget
+the model spends thinking before it writes any JSON — every call here is extraction
+against a schema, and reasoning tokens come out of the same budget as the output.
 
-Free-tier ceilings worth knowing: 8,000 tokens per request, 8,000 per minute, and
-200,000 per day. They are why prompt budgets are bounded and why one mission takes
-minutes rather than seconds.
+Two alternatives, both worse for this workload:
+
+```bash
+LLM_PROVIDER=groq   GROQ_API_KEY=gsk_...  GROQ_MODEL=openai/gpt-oss-20b
+LLM_PROVIDER=gemini GEMINI_API_KEY=...    GEMINI_MODEL=gemini-2.5-flash
+```
+
+Groq caps a request at 8,000 tokens — a full PRD plus a full map exceeds it and is
+refused with a 413 that no retry helps — and `GROQ_MODEL` must stay on one of
+`openai/gpt-oss-20b`, `openai/gpt-oss-120b` or `qwen/qwen3.8-27b`, the only models
+whose structured output is constrained rather than best-effort. Gemini's free tier
+allows **20 requests per day** against a mission that spends 10–15.
+
+`npm run llm:check` reports which provider, model and decoding mode you are actually
+in — run it before a demonstration, not during one.
 
 ### Deploying to Hugging Face Spaces
 
@@ -255,7 +270,7 @@ The YAML front matter at the top of this file declares `sdk: docker` and
 
 | Secret | Why |
 |---|---|
-| `GROQ_API_KEY` | Planning, locator resolution, and healing |
+| `SARVAM_API_KEY` | Planning, locator resolution, and healing |
 | `TEST_EMAIL`, `TEST_PASSWORD` | The fixture's login. Without them the crawl stops at the sign-in form. |
 
 The container filesystem is writable but ephemeral, so a restart is a cold start —

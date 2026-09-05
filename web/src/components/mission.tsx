@@ -9,6 +9,7 @@ import type {
   ScenarioVerdict,
 } from '../api/types.ts';
 import {
+  MarkDone,
   MarkFailed,
   MarkFallback,
   MarkPass,
@@ -16,6 +17,7 @@ import {
   MarkReview,
   MarkSkipped,
 } from './icons.tsx';
+import { REGISTER_TEXT } from './status.tsx';
 import type { Register } from './status.tsx';
 
 /**
@@ -25,14 +27,6 @@ import type { Register } from './status.tsx';
  * drawn mark, a written label, and a register — so the two vocabularies read as one
  * system rather than two. Colour is the fourth channel and never the only one.
  */
-
-const REGISTER_TEXT: Record<Register, string> = {
-  quiet: 'text-read-200',
-  stated: 'text-read-100',
-  attention: 'text-signal',
-  fault: 'text-alarm-ink',
-  dim: 'text-read-300',
-};
 
 // ---------------------------------------------------------------------------
 // Stages
@@ -65,6 +59,80 @@ export const STAGE_NOTE: Record<MissionStage, string> = {
   execute: 'Replay the specification, repairing stale locators and escalating the rest.',
   report: 'Synthesise the verdict, the gaps and the score with its parts.',
 };
+
+/**
+ * What one stage amounts to, read off the decisions it wrote.
+ *
+ * Derived rather than stored, because the orchestrator never records a stage
+ * status — it records decisions, and a stage is exactly the decisions filed under
+ * it. Storing a second, summarised copy would create two things that can disagree
+ * about the same stage, and the summary is the one that would be wrong.
+ *
+ * The order of the checks is the point. A stage that failed *and* recovered is
+ * still reported at its worst reading, because the interesting thing about a
+ * stage is the trouble it had, not that it eventually got past it.
+ */
+export type StageState = 'pending' | 'running' | 'passed' | 'attention' | 'failed' | 'skipped';
+
+export interface StageReading {
+  stage: MissionStage;
+  state: StageState;
+  decisions: DecisionOutcome[];
+  /** Summed from the decisions that timed themselves; null when none did. */
+  durationMs: number | null;
+  count: number;
+}
+
+export const STAGE_STATE: Record<
+  StageState,
+  { label: string; register: Register; mark: ComponentType<{ className?: string; size?: number }> }
+> = {
+  pending: { label: 'Not reached', register: 'dim', mark: MarkPending },
+  running: { label: 'Working', register: 'stated', mark: MarkPending },
+  passed: { label: 'Done', register: 'pass', mark: MarkDone },
+  attention: { label: 'Went round again', register: 'attention', mark: MarkFallback },
+  failed: { label: 'Failed', register: 'fault', mark: MarkFailed },
+  skipped: { label: 'Skipped', register: 'dim', mark: MarkSkipped },
+};
+
+export function readStage(
+  stage: MissionStage,
+  decisions: { stage: MissionStage; outcome: DecisionOutcome; durationMs: number | null }[],
+  currentStage: MissionStage | null,
+  live: boolean,
+): StageReading {
+  const mine = decisions.filter((decision) => decision.stage === stage);
+  const outcomes = mine.map((decision) => decision.outcome);
+
+  const timed = mine.filter((decision) => decision.durationMs !== null);
+  const durationMs = timed.length
+    ? timed.reduce((total, decision) => total + (decision.durationMs ?? 0), 0)
+    : null;
+
+  const state: StageState = (() => {
+    // A stage the orchestrator is inside right now is "working" even once it has
+    // filed decisions — several stages write as they go.
+    if (live && currentStage === stage) return 'running';
+    if (!mine.length) return 'pending';
+    if (outcomes.includes('failed')) return 'failed';
+    if (outcomes.includes('escalated') || outcomes.includes('retried')) return 'attention';
+    if (outcomes.every((outcome) => outcome === 'skipped')) return 'skipped';
+    return 'passed';
+  })();
+
+  return { stage, state, decisions: outcomes, durationMs, count: mine.length };
+}
+
+export function StageStateMark({ state, size = 14 }: { state: StageState; size?: number }) {
+  const entry = STAGE_STATE[state];
+  const Mark = entry.mark;
+  return (
+    <span className={`relative ${REGISTER_TEXT[entry.register]}`} title={entry.label}>
+      <Mark size={size} />
+      <span className="sr-only">{entry.label}</span>
+    </span>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Mission status

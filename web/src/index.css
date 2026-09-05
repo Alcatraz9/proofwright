@@ -48,13 +48,25 @@
  * Worst gated pair is alarm on plate-200 at 5.37:1. Tiers step 15.48 / 10.97 /
  * 7.22 against the page.
  *
- * Two chromatic tokens, both semantic, neither decorative. `signal` is caution
- * and is simultaneously every interactive affordance, so nothing on the surface
- * is coloured without either asking for action or being action. `alarm` is
- * reserved for one meaning: the application is at fault. There is deliberately no
- * green — a passing step is quiet achromatic, because a wall of green pills is
- * what this replaced and because "nothing to see here" should not compete for
- * attention with the one row that needs it.
+ * Three chromatic tokens, all semantic, none decorative. `signal` is caution and
+ * is simultaneously every interactive affordance. `alarm` is reserved for one
+ * meaning: the application is at fault. `pass` says a stage completed, and was
+ * added when the mission view took on the shape of a CI run.
+ *
+ * That third token is a reversal and the reasoning it reverses is worth keeping:
+ * this palette previously carried no green on purpose, because a wall of green
+ * pills is what the surface replaced, and "nothing to see here" should not
+ * compete for attention with the one row that needs it. The argument still holds
+ * everywhere it held before. `pass` is therefore scoped to the run-shaped views —
+ * the exhibit rail and the stage headers, where a reader scans a column of
+ * completed work for the one entry that is not — and is not for step marks,
+ * scenario verdicts, or any list where most rows pass. Colour there would rebuild
+ * exactly the wall this replaced.
+ *
+ * `pass` and `alarm` are the classic confusion pair under deuteranopia, which is
+ * survivable here only because colour is the fourth channel and never the only
+ * one: every state that carries it also carries a distinct drawn mark and a
+ * written label. A state that would be distinguished by hue alone is a defect.
  */
 @theme {
   --color-plate-000: oklch(0.205 0.004 250);
@@ -72,6 +84,8 @@
   --color-signal-ink: oklch(0.86 0.11 80);
   --color-alarm: oklch(0.72 0.17 25);
   --color-alarm-ink: oklch(0.78 0.14 27);
+  --color-pass: oklch(0.74 0.14 150);
+  --color-pass-ink: oklch(0.8 0.11 152);
 
   --font-sans: 'Archivo Variable', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'Azeret Mono Variable', ui-monospace, monospace;
