@@ -95,6 +95,8 @@ const INK = {
   'signal-ink': [0.86, 0.11, 80],
   alarm: [0.72, 0.17, 25],
   'alarm-ink': [0.78, 0.14, 27],
+  pass: [0.74, 0.14, 150],
+  'pass-ink': [0.8, 0.11, 152],
 };
 
 /** 4.5:1 for body text, 3:1 for large text and non-text boundaries. */

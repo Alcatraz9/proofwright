@@ -30,7 +30,7 @@ import {
   SiteMapExhibit,
   StageLegend,
 } from '../components/MissionExhibits.tsx';
-import { IconRun, IconStop } from '../components/icons.tsx';
+import { IconRun, IconStop, MarkDone, MarkPending } from '../components/icons.tsx';
 
 /**
  * The mission surface.
@@ -55,6 +55,32 @@ const EXHIBITS = [
 ] as const;
 
 type ExhibitId = (typeof EXHIBITS)[number]['id'];
+
+/**
+ * Whether an exhibit has anything in it yet.
+ *
+ * The rail carries a mark per row, and this is the only per-exhibit status that
+ * is actually true. It is tempting to read the run's own pass/fail into these
+ * rows the way a CI sidebar does, but four of the five exhibits are readings
+ * rather than jobs — a site map does not pass — and a green tick against "Report"
+ * would be asserting the report is good rather than that it exists. So the mark
+ * says "there is something here", which is what a reader deciding where to click
+ * is actually asking.
+ */
+function exhibitReady(id: ExhibitId, mission: Mission, report: QualityReport | null): boolean {
+  switch (id) {
+    case 'decisions':
+      return mission.decisions.length > 0;
+    case 'coverage':
+      return mission.coverageRounds.length > 0 || report?.coverage != null;
+    case 'sitemap':
+      return mission.siteMap != null;
+    case 'scenarios':
+      return (report?.scenarios.length ?? 0) > 0;
+    case 'report':
+      return report != null;
+  }
+}
 
 /** A second hand, so a five-minute stage cannot be mistaken for a stalled one. */
 function useTick(active: boolean): number {
@@ -120,30 +146,50 @@ export function Missions() {
 
       {mission ? (
         <div className="grid gap-4 lg:grid-cols-[13rem_minmax(0,1fr)]">
-          <nav aria-label="Investigation exhibits" className="flex gap-0 overflow-x-auto lg:flex-col lg:overflow-visible">
-            {EXHIBITS.map((entry) => {
-              const active = entry.id === exhibit;
-              return (
-                <button
-                  key={entry.id}
-                  type="button"
-                  aria-current={active ? 'page' : undefined}
-                  onClick={() => setQuery({ x: entry.id })}
-                  className={`label-cut shrink-0 border-b-2 px-3 py-2.5 text-left transition-colors lg:border-b-0 lg:border-l-2 ${focusRing} ${
-                    active
-                      ? 'border-signal text-read-100'
-                      : 'border-transparent text-read-300 hover:border-rule-strong hover:text-read-100'
-                  }`}
-                >
-                  {entry.label}
-                </button>
-              );
-            })}
+          {/* The rail. A row states whether its exhibit holds anything, so choosing
+              where to look does not mean opening five panels to find out. */}
+          <nav
+            aria-label="Investigation exhibits"
+            /* min-w-0 because a grid item defaults to min-width:auto, which lets
+               this nav grow to its content and leaves the scroller below nothing
+               to clip against — the whole page scrolls sideways instead of the
+               rail. */
+            className="min-w-0 lg:sticky lg:top-4 lg:self-start"
+          >
+            <p className="label-cut hidden border-b border-rule pb-2 lg:block">All exhibits</p>
+            <div className="flex gap-0 overflow-x-auto lg:mt-1 lg:flex-col lg:overflow-visible">
+              {EXHIBITS.map((entry) => {
+                const active = entry.id === exhibit;
+                const ready = exhibitReady(entry.id, mission, report.data);
+                return (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    aria-current={active ? 'page' : undefined}
+                    onClick={() => setQuery({ x: entry.id })}
+                    className={`flex shrink-0 items-center gap-2 border-b-2 px-3 py-2 text-left transition-colors lg:border-b-0 lg:border-l-2 ${focusRing} ${
+                      active
+                        ? 'border-signal bg-plate-100 text-read-100'
+                        : 'border-transparent text-read-300 hover:border-rule-strong hover:bg-plate-100 hover:text-read-100'
+                    }`}
+                  >
+                    {/* relative: the sr-only label inside is absolutely
+                        positioned, and without a positioned ancestor it escapes
+                        this row's horizontal scroll clip and widens the page. */}
+                    <span className={`relative shrink-0 ${ready ? 'text-pass' : 'text-read-300'}`}>
+                      {ready ? <MarkDone size={13} /> : <MarkPending size={13} />}
+                      <span className="sr-only">{ready ? 'Has content' : 'Nothing recorded yet'}</span>
+                    </span>
+                    <span className="label-cut">{entry.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </nav>
 
           <div className="min-w-0">
             <Panel>
-              {exhibit === 'decisions' ? <DecisionExhibit mission={mission} /> : null}
+              {exhibit === 'decisions' ? <DecisionExhibit mission={mission} live={live} /> : null}
               {exhibit === 'coverage' ? (
                 <CoverageExhibit mission={mission} report={report.data} />
               ) : null}

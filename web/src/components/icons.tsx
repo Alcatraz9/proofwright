@@ -123,6 +123,23 @@ export function MarkPass(props: IconProps) {
   );
 }
 
+/**
+ * Done, in the run-shaped views.
+ *
+ * A tick rather than the crossing line above, and the two are not interchangeable.
+ * MarkPass belongs to the step channel, where a drawn line runs through every step
+ * and "passed" means the line simply continues — a tick there would be a foreign
+ * object crossing the trace. In a column of stage headers there is no channel, and
+ * a bare dash reads as "nothing here" rather than as "this completed".
+ */
+export function MarkDone(props: IconProps) {
+  return (
+    <svg {...svgProps(props)}>
+      <path {...STROKE} d="M3 8.5l3.5 3.5L13 4.5" />
+    </svg>
+  );
+}
+
 /** Passed on a fallback. A hollow ring: reached, but not by the recorded route. */
 export function MarkFallback(props: IconProps) {
   return (
